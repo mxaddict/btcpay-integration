@@ -10,3 +10,6 @@
 [submodule "NBitcoin"]
 	path = NBitcoin
 	url = git@github.com:mxaddict/NBitcoin.git
+[submodule "navio-core"]
+	path = navio-core
+	url = git@github.com:nav-io/navio-core.git
