@@ -572,5 +572,5 @@ EOF
 - [NBXplorer chain registration](https://github.com/dgarage/NBXplorer/tree/master/NBXplorer.Client) — NBXplorerNetworkProvider.*.cs
 - [BTCPayServer AltcoinsPlugin](https://github.com/btcpayserver/btcpayserver/tree/master/BTCPayServer/Plugins/Altcoins) — AltcoinsPlugin.Groestlcoin.cs
 - [BTCPayServer Docker fragments](https://github.com/btcpayserver/btcpayserver-docker/tree/master/docker-compose-generator/docker-fragments)
-- [Navio Chain Parameters](src/kernel/chainparams.cpp)
-- [Navio RPC Interface](doc/JSON-RPC-interface.md)
+- [Navio Chain Parameters](navio-core/src/kernel/chainparams.cpp)
+- [Navio RPC Interface](navio-core/doc/JSON-RPC-interface.md)
