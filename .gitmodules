@@ -1,0 +1,12 @@
+[submodule "NBXplorer"]
+	path = NBXplorer
+	url = git@github.com:mxaddict/NBXplorer.git
+[submodule "btcpayserver-docker"]
+	path = btcpayserver-docker
+	url = git@github.com:mxaddict/btcpayserver-docker.git
+[submodule "btcpayserver"]
+	path = btcpayserver
+	url = git@github.com:mxaddict/btcpayserver.git
+[submodule "NBitcoin"]
+	path = NBitcoin
+	url = git@github.com:mxaddict/NBitcoin.git
