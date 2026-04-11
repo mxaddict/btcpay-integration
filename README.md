@@ -2,19 +2,21 @@
 
 Workspace for the Navio BTCPayServer integration.
 
-This repo is a coordination root, not the application code itself. It tracks the integration plan and pins the forked repositories needed to add Navio support to BTCPayServer.
+This repo is a coordination root, not the application code itself. It tracks the
+integration plan and pins the forked repositories needed to add Navio support to
+BTCPayServer.
 
 ## Contents
 
-| Path | Purpose |
-|------|---------|
-| `BTCPAY.md` | Full integration plan and implementation notes |
-| `PRs.md` | Draft PR tracking for the forked repos |
-| `NBitcoin/` | Navio-enabled fork of `MetacoSA/NBitcoin` |
-| `NBXplorer/` | Navio-enabled fork of `dgarage/NBXplorer` |
-| `btcpayserver/` | Navio-enabled fork of `btcpayserver/btcpayserver` |
-| `btcpayserver-docker/` | Navio-enabled fork of `btcpayserver/btcpayserver-docker` |
-| `navio-core/` | Read-only reference submodule for Navio chain params and RPC docs |
+| Path                   | Purpose                                                           |
+| ---------------------- | ----------------------------------------------------------------- |
+| `BTCPAY.md`            | Full integration plan and implementation notes                    |
+| `PRs.md`               | Draft PR tracking for the forked repos                            |
+| `NBitcoin/`            | Navio-enabled fork of `MetacoSA/NBitcoin`                         |
+| `NBXplorer/`           | Navio-enabled fork of `dgarage/NBXplorer`                         |
+| `btcpayserver/`        | Navio-enabled fork of `btcpayserver/btcpayserver`                 |
+| `btcpayserver-docker/` | Navio-enabled fork of `btcpayserver/btcpayserver-docker`          |
+| `navio-core/`          | Read-only reference submodule for Navio chain params and RPC docs |
 
 ## Current State
 
@@ -36,3 +38,9 @@ This repo is a coordination root, not the application code itself. It tracks the
 - This repo does not build BTCPayServer directly.
 - The root repo mainly documents and coordinates the integration effort.
 - `navio-core` is reference-only for chain params, genesis data, and RPC docs.
+
+---
+
+## LICENSE
+
+[MIT](./LICENSE)
