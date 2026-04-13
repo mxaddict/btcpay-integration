@@ -390,6 +390,175 @@ Insert after `PostInit()`:
 
 NBXplorer will call `Navio.ConfigureBLSCTOverrides(client)` when initializing the RPC connection for Navio.
 
+#### 1g. BLSCT Client-Side Address Derivation
+
+**Status:** Not yet implemented. This is required for payment address generation to work.
+
+**Background:** BLSCT uses a Monero-style sub-address scheme over BLS12-381 instead of Bitcoin's BIP32/xpub. The `getblsctauditkey` RPC returns a 160-char hex string:
+- First 64 chars = view key scalar (32 bytes, Fr field element)
+- Next 96 chars = spending public key (48 bytes, G1 point)
+
+Together these act as the BLSCT equivalent of an xpub: they allow deriving all sub-addresses for a wallet without the private spending key. This is how NBXplorer will generate invoice addresses without a running daemon.
+
+**Derivation algorithm** (from `navio-core/src/blsct/wallet/address.cpp:34-58`):
+
+```
+Input:  viewKey    (32-byte Fr scalar)
+        spendKey   (48-byte G1 point)
+        account    (int64, normally 0 for receive, -1 for change)
+        index      (uint64, increments per address)
+
+m = SHA256("SubAddress\0" || viewKey_bytes || account_le8 || index_le8)
+  -- interpreted as Fr scalar (reduced mod order)
+
+M = m × G        -- G1 scalar multiplication with generator
+D = M + spendKey -- G1 point addition
+C = viewKey × D  -- G1 scalar multiplication (view key scalar × D)
+
+output = DoublePublicKey(C, D)  -- 96 bytes: C (48) || D (48)
+address = bech32m(HRP, convert_bits_8_to_5(output))
+  -- HRP: "tnv" (testnet), "nav" (mainnet)
+  -- encoded length: ~165 chars
+```
+
+**C# library:** Use `MCL.BLS12_381.Net` NuGet package — a .NET wrapper around the same MCL library used by navio-core. Supports G1 arithmetic and ETH2.0-style 48-byte point serialization.
+
+##### 1g-i. Add dependency to `NBitcoin.Altcoins/NBitcoin.Altcoins.csproj`
+
+```xml
+<PackageReference Include="MCL.BLS12_381.Net" Version="0.0.4" />
+```
+
+##### 1g-ii. Create `NBitcoin.Altcoins/BlsctDerivationStrategy.cs`
+
+This file contains two classes:
+
+**`BlsctAddressDeriver`** — pure derivation math:
+
+```csharp
+using System;
+using System.Text;
+using System.Security.Cryptography;
+using NBitcoin.DataEncoders;
+
+namespace NBitcoin.Altcoins
+{
+    /// <summary>
+    /// Client-side BLSCT sub-address derivation.
+    /// Matches navio-core src/blsct/wallet/address.cpp:34-58.
+    /// </summary>
+    public static class BlsctAddressDeriver
+    {
+        private static readonly byte[] SubAddressHeader =
+            Encoding.UTF8.GetBytes("SubAddress\0");
+
+        /// <summary>
+        /// Derives a BLSCT sub-address at (account, index).
+        /// </summary>
+        /// <param name="viewKeyBytes">32-byte Fr scalar (from getblsctauditkey, first 64 hex chars)</param>
+        /// <param name="spendKeyBytes">48-byte G1 point (from getblsctauditkey, next 96 hex chars)</param>
+        /// <param name="account">Account index (0 = receive, -1 = change, -2 = staking)</param>
+        /// <param name="index">Address index (increments per address)</param>
+        /// <param name="hrp">Bech32m HRP ("tnv" for testnet, "nav" for mainnet)</param>
+        /// <returns>Bech32m-encoded BLSCT address (e.g. "tnv1...")</returns>
+        public static string Derive(
+            byte[] viewKeyBytes,
+            byte[] spendKeyBytes,
+            long account,
+            ulong index,
+            string hrp)
+        {
+            // 1. Hash: SHA256("SubAddress\0" || viewKey || account_le8 || index_le8)
+            byte[] accountBytes = BitConverter.GetBytes(account);
+            byte[] indexBytes = BitConverter.GetBytes(index);
+            if (!BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(accountBytes);
+                Array.Reverse(indexBytes);
+            }
+
+            byte[] hashInput = new byte[
+                SubAddressHeader.Length + viewKeyBytes.Length + 8 + 8];
+            int pos = 0;
+            SubAddressHeader.CopyTo(hashInput, pos); pos += SubAddressHeader.Length;
+            viewKeyBytes.CopyTo(hashInput, pos);     pos += viewKeyBytes.Length;
+            accountBytes.CopyTo(hashInput, pos);     pos += 8;
+            indexBytes.CopyTo(hashInput, pos);
+
+            byte[] mBytes = SHA256.HashData(hashInput);
+
+            // 2. BLS12-381 G1 operations via MCL.BLS12_381.Net
+            //    M = m × G
+            //    D = M + spendKey
+            //    C = viewKey × D
+            //    (see MCL.BLS12_381.Net API for exact calls)
+            // TODO: fill in MCL API calls when library is confirmed
+
+            // 3. Serialize: C (48 bytes) || D (48 bytes) = 96 bytes total
+            // 4. Convert 8-to-5 bits and bech32m encode with hrp
+            throw new NotImplementedException("BLS G1 operations pending MCL library integration");
+        }
+    }
+
+    /// <summary>
+    /// NBitcoin DerivationStrategyBase for BLSCT wallets.
+    /// String format: "blsct:VIEW_KEY_HEX:SPEND_KEY_HEX"
+    ///   VIEW_KEY_HEX  = 64 hex chars (32 bytes, Fr scalar)
+    ///   SPEND_KEY_HEX = 96 hex chars (48 bytes, G1 point)
+    /// Obtained by running: navio-cli getblsctauditkey
+    /// (concatenate the two fields returned)
+    /// </summary>
+    public class BlsctDerivationStrategy : DerivationStrategyBase
+    {
+        public const string Prefix = "blsct:";
+
+        public byte[] ViewKey { get; }   // 32 bytes
+        public byte[] SpendKey { get; }  // 48 bytes
+
+        public BlsctDerivationStrategy(byte[] viewKey, byte[] spendKey)
+            : base(null)
+        {
+            if (viewKey.Length != 32)
+                throw new ArgumentException("View key must be 32 bytes", nameof(viewKey));
+            if (spendKey.Length != 48)
+                throw new ArgumentException("Spend key must be 48 bytes", nameof(spendKey));
+            ViewKey = viewKey;
+            SpendKey = spendKey;
+        }
+
+        /// <summary>
+        /// Parse from "blsct:VIEW_HEX:SPEND_HEX" string.
+        /// </summary>
+        public static BlsctDerivationStrategy Parse(string s)
+        {
+            if (!s.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+                return null;
+            var parts = s.Substring(Prefix.Length).Split(':');
+            if (parts.Length != 2 || parts[0].Length != 64 || parts[1].Length != 96)
+                return null;
+            var viewKey = Encoders.Hex.DecodeData(parts[0]);
+            var spendKey = Encoders.Hex.DecodeData(parts[1]);
+            return new BlsctDerivationStrategy(viewKey, spendKey);
+        }
+
+        public override string ToString()
+        {
+            return Prefix
+                + Encoders.Hex.EncodeData(ViewKey)
+                + ":"
+                + Encoders.Hex.EncodeData(SpendKey);
+        }
+
+        public override DerivationStrategyBase GetChild(int i) => this;
+        public override Derivation Derive(uint index) =>
+            throw new NotSupportedException(
+                "Use BlsctAddressDeriver.Derive() for BLSCT address generation");
+    }
+}
+```
+
+> **Note:** `DerivationStrategyBase.Derive(uint index)` is intentionally not supported — BLSCT derivation takes `(account, index)` not a flat uint. NBXplorer's `GenerateAddressesCore` will detect `BlsctDerivationStrategy` and call `BlsctAddressDeriver.Derive()` directly.
+
 ---
 
 ### Step 2: NBXplorer — Register Navio Chain
@@ -482,47 +651,132 @@ Make two changes:
 
 > **Note:** `createwallet` is NOT in the remap dict, so it goes to the daemon as `createwallet` with the `blsct=true` parameter. The remapping only affects subsequent wallet RPC calls (`getbalance` → `getblsctbalance`, etc.).
 
-#### 2d. BLSCT-aware address generation — `getnewaddress` works, skip descriptor import
+#### 2d. BLSCT-aware address generation — skip descriptor import, use BlsctDerivationStrategy
 
-**Finding:** `getnewaddress` **works natively with BLSCT wallets**. When a wallet is created with `blsct=true`, `getnewaddress` auto-defaults to `OutputType::BLSCT` and returns a BLSCT bech32m address with the `tnv` HRP (testnet). No separate BLSCT address RPC is needed.
+**Status:** `ImportDescriptorToRPCIfNeeded` skip — done. `GenerateAddressesCore` BLSCT path — see §2h.
 
-Source: `navio-core/src/wallet/rpc/addresses.cpp:47` — the wallet checks `WALLET_FLAG_BLSCT` and defaults `output_type = OutputType::BLSCT`. Alternatively, pass `address_type="blsct"` explicitly.
+**`getnewaddress`** works natively on BLSCT wallets (auto-selects `OutputType::BLSCT`). Not remapped.
 
-**`getnewaddress` does NOT need to be remapped.** It already works correctly on BLSCT wallets. Do NOT add it to the `RPCMethodOverrides` dict.
+**`importdescriptors` must be skipped.** `WALLET_FLAG_BLSCT` clears `WALLET_FLAG_DESCRIPTORS` — standard descriptors are incompatible. Already implemented in `NBXplorer/NBXplorer/Backend/Repository.cs:250`.
 
-**However, `importdescriptors` must be skipped.** BLSCT wallets disable descriptors entirely (`WALLET_FLAG_BLSCT` clears `WALLET_FLAG_DESCRIPTORS` — see `navio-core/src/wallet/rpc/wallet.cpp:418`). The daemon's `blsct::KeyMan` manages sub-address derivation internally from the BLSCT seed. Standard `wpkh()`/`tr()` descriptors are incompatible.
+**`ImportAddressAsync` (Legacy fallback) must also be skipped for Navio.** After skipping descriptors, NBXplorer falls back to `importaddress` per address — which also fails on BLSCT wallets. The daemon already tracks all addresses generated by its own `blsct::KeyMan`; no import is needed.
 
 **File:** `NBXplorer/NBXplorer/Backend/Repository.cs`
 
-**In `ImportDescriptorToRPCIfNeeded` (~line 248):**
-```csharp
-private async Task ImportDescriptorToRPCIfNeeded(...)
-{
-    // BLSCT wallets don't use descriptors — the daemon derives
-    // sub-addresses from the BLSCT seed internally via blsct::KeyMan.
-    // importdescriptors would fail (WALLET_FLAG_DESCRIPTORS is cleared).
-    if (rpc.Network.NetworkSet is NBitcoin.Altcoins.Navio)
-        return;
+In `ImportDescriptorToRPCIfNeeded`, extend the existing Navio early-return to also skip the Legacy fallback path. The current code already returns early for Navio — verify the Legacy `ImportAddressAsync` calls further down the method are also unreachable for Navio.
 
-    // ... existing descriptor import logic ...
+#### 2h. `GenerateAddressesCore` BLSCT derivation path
+
+**Status:** Not yet implemented. Depends on §1g being implemented first.
+
+**File:** `NBXplorer/NBXplorer/Backend/Repository.cs`
+
+`GenerateAddressesCore` (~line 174) currently always derives addresses via BIP32 client-side. Add a BLSCT path at the top of the method that fires when the strategy is `BlsctDerivationStrategy`:
+
+```csharp
+internal async Task<int> GenerateAddressesCore(
+    DbConnection connection,
+    DerivationStrategyBase strategy,
+    DerivationLine derivationLine,
+    GenerateAddressQuery query)
+{
+    // BLSCT path: derive addresses from (viewKey, spendKey) instead of BIP32
+    if (strategy is NBitcoin.Altcoins.BlsctDerivationStrategy blsct)
+    {
+        return await GenerateBlsctAddressesCore(
+            connection, blsct, derivationLine.Feature, query);
+    }
+
+    // ... existing BIP32 path unchanged ...
+}
+
+private async Task<int> GenerateBlsctAddressesCore(
+    DbConnection connection,
+    BlsctDerivationStrategy strategy,
+    DerivationFeature feature,
+    GenerateAddressQuery query)
+{
+    var walletKey = GetWalletKey(strategy, Network);
+    var descriptorKey = GetDescriptorKey(strategy, feature);
+    var gapNextIndex = await GetGapAndNextIdx(connection, descriptorKey);
+    long toGenerate = ToGenerateCount(query, gapNextIndex?.gap);
+    if (gapNextIndex is not null && toGenerate == 0)
+        return 0;
+
+    // Initial wallet/descriptor row creation (same as BIP32 path)
+    if (gapNextIndex is null)
+    {
+        await connection.ExecuteAsync(
+            "INSERT INTO wallets VALUES (@wid, @metadata::JSONB) ON CONFLICT DO NOTHING",
+            walletKey);
+        await connection.ExecuteAsync(
+            "INSERT INTO descriptors VALUES (@code, @descriptor, @metadata::JSONB) " +
+            "ON CONFLICT DO NOTHING; " +
+            "INSERT INTO wallets_descriptors (code, descriptor, wallet_id) " +
+            "VALUES (@code, @descriptor, @wallet_id) ON CONFLICT DO NOTHING;",
+            new
+            {
+                descriptorKey.code,
+                descriptorKey.descriptor,
+                metadata = Serializer.ToString(new LegacyDescriptorMetadata()
+                {
+                    Derivation = strategy,
+                    Feature = feature,
+                    Type = LegacyDescriptorMetadata.TypeName
+                }),
+                wallet_id = walletKey.wid
+            });
+        gapNextIndex = await GetGapAndNextIdx(connection, descriptorKey);
+        toGenerate = ToGenerateCount(query, gapNextIndex?.gap);
+    }
+    if (gapNextIndex is null) return 0;
+
+    long totalGenerated = 0;
+    var hrp = Network.NBitcoinNetwork.NetworkSet is NBitcoin.Altcoins.Navio
+        ? (Network.NBitcoinNetwork == Network.NBitcoinNetwork.GetNetwork("nav-test")
+            ? "tnv" : "nav")
+        : throw new InvalidOperationException("BlsctDerivationStrategy used on non-Navio network");
+
+    // Map DerivationFeature to BLSCT account index
+    long account = feature == DerivationFeature.Change
+        ? NBitcoin.Altcoins.BlsctDerivationStrategy.ChangeAccount   // -1
+        : 0; // receive
+
+    do
+    {
+        var nextIndex = gapNextIndex.next_idx;
+        var inserts = new DescriptorScriptInsert[toGenerate];
+
+        // Derive BLSCT addresses for indices [nextIndex, nextIndex + toGenerate)
+        for (long i = 0; i < toGenerate; i++)
+        {
+            var addrStr = NBitcoin.Altcoins.BlsctAddressDeriver.Derive(
+                strategy.ViewKey,
+                strategy.SpendKey,
+                account,
+                (ulong)(nextIndex + i),
+                hrp);
+            var addr = BitcoinAddress.Create(addrStr, Network.NBitcoinNetwork);
+            inserts[i] = new DescriptorScriptInsert(
+                descriptorKey.descriptor,
+                nextIndex + i,
+                addr.ScriptPubKey,
+                addr.ScriptPubKey.Hash.ToString(),
+                addr,
+                feature);
+        }
+
+        await InsertDescriptorScripts(connection, inserts);
+        totalGenerated += toGenerate;
+        gapNextIndex = await GetGapAndNextIdx(connection, descriptorKey);
+        toGenerate = ToGenerateCount(query, gapNextIndex?.gap);
+    } while (toGenerate > 0);
+
+    return (int)totalGenerated;
 }
 ```
 
-**In `GenerateAddressesCore` (~line 174):**
-For Navio, NBXplorer should call `getnewaddress` on the daemon to get each new BLSCT sub-address, rather than deriving addresses client-side from an xpub. The daemon handles the BLS key derivation and sub-address pool internally.
-
-```csharp
-// For Navio BLSCT: get addresses from daemon, not client-side derivation
-if (rpc.Network.NetworkSet is NBitcoin.Altcoins.Navio)
-{
-    var address = await rpc.GetNewAddressAsync(cancellationToken);
-    // Store address in NBXplorer's tracking database
-    // ...
-    return;
-}
-```
-
-> **Note:** This means Navio address generation is daemon-dependent. NBXplorer cannot generate addresses offline or from an xpub. The daemon wallet must be running and loaded.
+> **Note on `importaddress`:** Do not call `ImportAddressAsync` for Navio after address generation. The daemon's BLSCT wallet (`blsct::KeyMan`) scans all outputs using the private view key — it does not need explicit address import. NBXplorer's DB is the source of truth for address tracking; the daemon handles payment detection independently via `walletnotify`.
 
 #### 2e. BLSCT-aware UTXO scanning — use `listblsctunspent`, skip `scantxoutset`
 
@@ -682,20 +936,65 @@ if (selectedChains.Contains("NAV"))  InitNavio(services);
 
 Place an SVG icon at `BTCPayServer/wwwroot/imlegacy/navio.svg`.
 
-#### 3d. BLSCT wallet generation considerations
+#### 3d. BLSCT wallet setup — audit key as derivation strategy
 
-BTCPayServer's wallet generation UI assumes BIP32 HD key derivation with xpub-based derivation strategies. For Navio, the wallet is seed-based (BLSCT seed), not xpub-based. The wallet generation flow needs adaptation:
+**Status:** Not yet implemented. Depends on §1g and §2h.
 
-- **No xpub import:** Navio BLSCT wallets don't use extended public keys. Instead, the BLSCT seed is set via `setblsctseed` or generated at `createwallet` time.
-- **No derivation path selection:** BLSCT doesn't use BIP44/49/84/86 derivation paths. The daemon handles sub-address derivation internally.
-- **Watch-only via audit key:** Instead of importing an xpub for watch-only, use `getblsctauditkey` to export the audit (view) key.
+Instead of an xpub, Navio uses `(viewKey, spendingPubKey)` from `getblsctauditkey` as the wallet's derivation strategy. The user flow:
 
-**For initial testnet integration**, the simplest approach is:
-1. Let NBXplorer's `EnsureWalletCreated` create the BLSCT wallet on the daemon
-2. The daemon self-manages address generation
-3. BTCPayServer displays the daemon-generated addresses for payment
+**Step 1: Export audit key from running daemon**
 
-The wallet import/generation UI customization can be deferred — the core payment flow (generate address → detect payment → confirm) should work through NBXplorer's standard APIs once the BLSCT RPC layer is correct.
+```bash
+navio-cli -testnet getblsctauditkey
+# Returns 160-char hex string:
+# First 64 chars  = view key scalar (32 bytes)
+# Next 96 chars   = spending public key (48 bytes)
+```
+
+**Step 2: Construct BlsctDerivationStrategy string**
+
+Split the 160-char output and format as:
+```
+blsct:VIEW_KEY_HEX:SPEND_KEY_HEX
+```
+Example:
+```
+blsct:a3f1...c2e9:04ab...7f3d
+```
+
+**Step 3: Register BlsctDerivationStrategy parser in BTCPayServer**
+
+**File:** `BTCPayServer/Services/Wallets/BTCPayWalletProvider.cs` or the derivation strategy parsing path.
+
+BTCPayServer calls `network.NBXplorerNetwork.ParseDerivationStrategy(string)` when a user pastes a strategy. For Navio, this must recognize `blsct:` prefix and return a `BlsctDerivationStrategy`.
+
+**File:** `NBXplorer/NBXplorer.Client/NBXplorerNetworkProvider.Navio.cs`
+
+Add strategy parsing to `InitNavio`:
+```csharp
+private void InitNavio(ChainName networkType)
+{
+    Add(new NBXplorerNetwork(NBitcoin.Altcoins.Navio.Instance, networkType)
+    {
+        MinRPCVersion = 220000,
+        CoinType = networkType == ChainName.Mainnet
+            ? new KeyPath("0'")
+            : new KeyPath("1'"),
+        // Custom strategy parser: recognize "blsct:..." strings
+        DerivationStrategyFactory = new BlsctDerivationStrategyFactory(),
+    });
+}
+```
+
+Alternatively, override `ParseDerivationStrategy` on the NBXplorerNetwork for Navio to intercept `blsct:...` strings before the standard BIP32 parser runs.
+
+**Step 4: Wallet import UI in BTCPayServer (minimal change)**
+
+In the "Import wallet" flow for Navio, show a text field labelled "BLSCT Audit Key" with instructions to run `getblsctauditkey`. The value is stored internally as `blsct:VIEW_HEX:SPEND_HEX`.
+
+No other UI changes required for testnet — address generation, payment detection, and invoice confirmation all flow through the standard NBXplorer path once §1g and §2h are implemented.
+
+> **Spending:** The daemon's hot wallet holds the private BLSCT seed. NBXplorer/BTCPayServer request sends via the remapped `sendtoaddress` → `sendtoblsctaddress` RPC. No private key export or PSBT needed.
 
 ---
 
@@ -846,6 +1145,8 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 - [ ] NBitcoin: Navio testnet network parses BLSCT `tnv` addresses correctly
 - [ ] NBitcoin: RPC method remapping works (`getbalance` → `getblsctbalance`, etc.)
 - [ ] NBitcoin: `CreateWalletAsync` passes `blsct=true` for Navio
+- [ ] NBitcoin: `BlsctAddressDeriver.Derive()` produces correct `tnv1…` addresses matching daemon output (verify against `keyman_tests.cpp` expected values)
+- [ ] NBitcoin: `BlsctDerivationStrategy` round-trips correctly through `ToString()` / `Parse()`
 
 ### NBXplorer ↔ Daemon
 - [ ] NBXplorer: creates BLSCT wallet on Navio daemon (`createwallet` with `blsct=true`)
@@ -855,6 +1156,8 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 - [ ] NBXplorer: `listblscttransactions` returns transaction history
 - [ ] NBXplorer: indexes Navio testnet blocks and tracks BLSCT transactions
 - [ ] NBXplorer: descriptor import is correctly skipped for Navio (BLSCT seed-based)
+- [ ] NBXplorer: `GenerateAddressesCore` with `BlsctDerivationStrategy` produces correct `tnv1…` addresses
+- [ ] NBXplorer: `ImportAddressAsync` (Legacy fallback) is skipped for Navio
 
 ### BTCPayServer
 - [ ] BTCPayServer: Navio appears as available cryptocurrency
