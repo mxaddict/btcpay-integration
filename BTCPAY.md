@@ -835,29 +835,14 @@ Binaries appear in `./src/`.
 
 ## PR Submission Order
 
-PRs depend on each other. Submit in this order from each `mxaddict` fork:
+> **PRs already open.** All four draft PRs have been submitted. See [PRs.md](PRs.md) for links and current status.
+
+PRs depend on each other. Merge in this order:
 
 1. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition + RPC method remapping mechanism + BLSCT RPC operations + `CreateWalletOptions.Blsct`
 2. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration + BLSCT RPC overrides + skip descriptor import + BLSCT UTXO scanning + BLSCT tx creation + RPC whitelist (depends on #1 being merged/released as NuGet)
 3. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin + BLSCT wallet generation considerations (depends on #2)
 4. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment + `navio-cli.sh` (independent, can go in parallel)
-
-Submit each PR as a **draft** (WIP) using `gh` from inside the fork directory:
-
-```bash
-git push -u origin navio-support
-gh pr create --draft --repo <upstream-owner>/<repo> \
-  --title "WIP: Add Navio (NAV) testnet support" \
-  --body "$(cat <<'EOF'
-## Summary
-- Add Navio testnet as a supported cryptocurrency
-- Navio is a Bitcoin Core fork with BLSCT consensus
-- Testnet only (mainnet chainparams not yet finalized)
-
-> **Work in progress** — not ready for merge yet.
-EOF
-)"
-```
 
 **Do NOT mark PRs as ready for review.** The maintainer (mxaddict) will do that manually.
 
