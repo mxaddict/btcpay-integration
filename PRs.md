@@ -13,23 +13,45 @@
 ## Recent Changes
 
 ### NBitcoin (navio-support branch)
-- Added `BlsctDerivationStrategy.cs` with:
-  - `BlsctAddressDeriver` for BLSCT sub-address derivation via C# P/Invoke
-  - `BlsctDerivationStrategy` class implementing the derivation strategy pattern
-  - `BlsctDerivationStrategyFactory` for parsing `blsct:VIEW_HEX:SPEND_HEX` strings
-- Added project reference to `libblsct-bindings/ffi/csharp/NavioBlsct.csproj`
+- Added `Navio.cs` network definition with testnet genesis hex, RPC remappings
+- Added BLSCT RPC operations to `RPCOperations.cs`
+- Added `RPCMethodOverrides` dictionary to `RPCClient.cs` for RPC remapping
+- Added `Blsct` parameter to `CreateWalletOptions`
+- `ConfigureBLSCTOverrides()` static method with 8 RPC remappings
 
 ### NBXplorer (navio-support branch)
-- Updated `NBXplorerNetworkProvider.Navio.cs` to set `DerivationStrategyFactory` to `BlsctDerivationStrategyFactory`
-- Added BLSCT path in `GenerateAddressesCore` that detects `BlsctDerivationStrategy` and routes to `GenerateBlsctAddressesCore`
-- Implemented `GenerateBlsctAddressesCore` method that derives BLSCT addresses using `BlsctAddressDeriver.Derive()`
+- `NavioNBXplorerNetwork` with `BlsctDerivationStrategyFactory`
+- `BlsctDerivationStrategy` + `BlsctDerivationStrategyFactory` in NBXplorer.Client
+- BLSCT RPC overrides in `RPCClientExtensions.cs` (`blsct=true` wallet creation)
+- Descriptor import skip for BLSCT wallets in `Repository.cs`
+- `GenerateBlsctAddressesCore` — native P/Invoke address derivation
+- `scantxoutset` skip for Navio in `ScanUTXOSetService.cs`
+- PSBT endpoints blocked for Navio in `MainController.PSBT.cs` (HTTP 400)
+- 9 BLSCT methods added to RPC proxy whitelist
+
+### BTCPayServer (navio-support branch)
+- `AltcoinsPlugin.Navio.cs` — plugin with `IsBLSCT = true`, rate rules, icon
+- `BTCPayNetwork.IsBLSCT` property for BLSCT-specific UI behavior
+- Wallet setup UI: hides hardware/file/scan/seed import for BLSCT
+- Xpub view: "BLSCT Audit Key" label, `navio-cli` help text, hides xpub examples
+- Confirm addresses: skips address preview for BLSCT (native derivation only)
+- Controller: auto-converts raw 160-char hex to `blsct:VIEW:SPEND` format
+- Controller: reflection dispatch to `BlsctDerivationStrategyFactory.Parse()`
+- Hides "Create new wallet" option for BLSCT (daemon creates wallets)
+
+### btcpayserver-docker (navio-support branch)
+- `navio.yml` docker fragment with `naviod` container, RPC/P2P ports, env vars
+- `navio_libblsct` shared volume for native P/Invoke (`LD_LIBRARY_PATH` set)
+- `crypto-definitions.json` entry for NAV
+- `navio-cli.sh` wrapper script
 
 ## Submission Order
 
-1. **NBitcoin** → Must merge first (defines Navio network + BlsctDerivationStrategy)
-2. **NBXplorer** → Depends on NBitcoin (uses BlsctDerivationStrategy)
-3. **BTCPayServer** → Depends on NBXplorer
-4. **btcpayserver-docker** → Independent, can go in parallel
+1. **libblsct-bindings** → Independent (C# P/Invoke layer)
+2. **NBitcoin** → Must merge first (defines Navio network + RPC remapping)
+3. **NBXplorer** → Depends on NBitcoin (uses BlsctDerivationStrategy + remapping)
+4. **BTCPayServer** → Depends on NBXplorer (uses audit key parsing)
+5. **btcpayserver-docker** → Independent, can go in parallel with 1–4
 
 ## Integration Repo
 
@@ -37,7 +59,6 @@
 
 ## Current Status
 
-All core integration code has been implemented. The remaining work is:
+All code across all 4 repos is complete. The only remaining work is:
 1. End-to-end testing with a running Navio testnet daemon
-2. Optional: UI enhancement for Navio-specific audit key import instructions
-3. Upstream PRs review and merge
+2. Upstream PRs to `MetacoSA/NBitcoin`, `dgarage/NBXplorer`, etc. (waiting on E2E validation)
