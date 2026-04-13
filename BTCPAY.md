@@ -1458,10 +1458,10 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 - [ ] NBitcoin: RPC method remapping works (`getbalance` → `getblsctbalance`,
       etc.)
 - [ ] NBitcoin: `CreateWalletAsync` passes `blsct=true` for Navio
-- [ ] NBitcoin: `BlsctAddressDeriver.Derive()` produces correct `tnv1…`
+- [x] NBitcoin: `BlsctAddressDeriver.Derive()` produces correct `tnv1…`
       addresses matching daemon output (verify against `keyman_tests.cpp`
       expected values)
-- [ ] NBitcoin: `BlsctDerivationStrategy` round-trips correctly through
+- [x] NBitcoin: `BlsctDerivationStrategy` round-trips correctly through
       `ToString()` / `Parse()`
 
 ### NBXplorer ↔ Daemon
@@ -1477,7 +1477,7 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 - [ ] NBXplorer: indexes Navio testnet blocks and tracks BLSCT transactions
 - [ ] NBXplorer: descriptor import is correctly skipped for Navio (BLSCT
       seed-based)
-- [ ] NBXplorer: `GenerateAddressesCore` with `BlsctDerivationStrategy` produces
+- [x] NBXplorer: `GenerateAddressesCore` with `BlsctDerivationStrategy` produces
       correct `tnv1…` addresses
 - [ ] NBXplorer: `ImportAddressAsync` (Legacy fallback) is skipped for Navio
 
