@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add Navio (a Bitcoin Core fork with BLSCT) as a supported cryptocurrency in BTCPayServer. Navio uses Bitcoin-compatible RPC and UTXO model, so it follows the **NBXplorer path** (same as Litecoin, Groestlcoin, Dogecoin, etc.). This requires changes across 4 repositories, each submitted as a separate PR.
+Add Navio (a Bitcoin Core fork with BLSCT) as a supported cryptocurrency in BTCPayServer. Navio uses Bitcoin-compatible blockchain/network RPCs but requires **BLSCT-specific wallet RPCs** for address generation, balance queries, UTXO listing, and transaction creation/signing. It follows the **NBXplorer path** (same as Litecoin, Groestlcoin, Dogecoin, etc.) but with BLSCT wallet RPC overrides. This requires changes across 4 repositories, each submitted as a separate PR.
 
 **Scope: Testnet only.** Mainnet chainparams are not finalized (`fBLSCT = false` on mainnet currently). Testnet has `fBLSCT = true` and a confirmed genesis hash. Mainnet integration will follow once mainnet chainparams are complete.
 
@@ -25,7 +25,7 @@ Add Navio (a Bitcoin Core fork with BLSCT) as a supported cryptocurrency in BTCP
 └─────────────────────┘
 ```
 
-BTCPayServer's on-chain wallet infrastructure (address generation, UTXO tracking, transaction signing) is shared across all NBXplorer-based coins. No custom payment handlers needed.
+BTCPayServer's on-chain wallet infrastructure is shared across all NBXplorer-based coins. However, Navio requires BLSCT-specific RPC calls for wallet operations (balance, send, UTXO listing, transaction creation/signing) instead of the standard Bitcoin wallet RPCs. NBXplorer and NBitcoin's RPC layer need Navio-specific overrides to route wallet calls through the BLSCT RPC variants (e.g. `getblsctbalance` instead of `getbalance`, `sendtoblsctaddress` instead of `sendtoaddress`).
 
 ## Navio Testnet Chain Parameters
 
@@ -61,6 +61,10 @@ Source: `src/kernel/chainparams.cpp` (CTestNetParams, line 261)
 
 ## RPC Compatibility (Verified Present)
 
+Navio uses BLSCT (Boneh-Lynn-Shacham Confidential Transactions) for wallet operations. All wallet-related RPCs must use the BLSCT variants — standard Bitcoin wallet RPCs operate on transparent (non-BLSCT) outputs and are **not** suitable for Navio's privacy layer.
+
+### Blockchain / Network RPCs (standard — same as Bitcoin)
+
 | RPC Method | File | Line |
 |------------|------|------|
 | `getblockchaininfo` | src/rpc/blockchain.cpp | 1236 |
@@ -70,15 +74,41 @@ Source: `src/kernel/chainparams.cpp` (CTestNetParams, line 261)
 | `getnetworkinfo` | src/rpc/net.cpp | 613 |
 | `sendrawtransaction` | src/rpc/mempool.cpp | 37 |
 | `getmempoolinfo` | src/rpc/mempool.cpp | 682 |
-| `sendtoaddress` | src/wallet/rpc/spend.cpp | 217 |
-| `createwallet` | src/wallet/rpc/wallet.cpp | 348 |
-| `getnewaddress` | src/wallet/rpc/addresses.cpp | 22 |
-| `listunspent` | src/wallet/rpc/coins.cpp | 536 |
-| `fundrawtransaction` | src/wallet/rpc/spend.cpp | 726 |
-| `signrawtransactionwithwallet` | src/wallet/rpc/spend.cpp | 843 |
-| `getwalletinfo` | src/wallet/rpc/wallet.cpp | 44 |
 
-Wallet features confirmed: descriptor wallets, HD key derivation, multisig, external signer.
+### Wallet RPCs (BLSCT variants — required for Navio)
+
+| RPC Method | Replaces (Bitcoin standard) | File | Line |
+|------------|---------------------------|------|------|
+| `createwallet` (with `blsct=true`) | `createwallet` | src/wallet/rpc/wallet.cpp | 348 |
+| `getwalletinfo` | — (same, reports `"blsct": true`) | src/wallet/rpc/wallet.cpp | 44 |
+| `getblsctbalance` | `getbalance` | src/blsct/wallet/rpc.cpp | 349 |
+| `sendtoblsctaddress` | `sendtoaddress` | src/blsct/wallet/rpc.cpp | 535 |
+| `listblsctunspent` | `listunspent` | src/blsct/wallet/rpc.cpp | 862 |
+| `listblscttransactions` | `listtransactions` | src/blsct/wallet/rpc.cpp | 1014 |
+| `createblsctrawtransaction` | `createrawtransaction` | src/blsct/wallet/rpc.cpp | 1253 |
+| `fundblsctrawtransaction` | `fundrawtransaction` | src/blsct/wallet/rpc.cpp | 1636 |
+| `signblsctrawtransaction` | `signrawtransactionwithwallet` | src/blsct/wallet/rpc.cpp | 1867 |
+| `decodeblsctrawtransaction` | `decoderawtransaction` | src/blsct/wallet/rpc.cpp | 1908 |
+
+### Additional BLSCT RPCs (available for extended functionality)
+
+| RPC Method | Description | File | Line |
+|------------|-------------|------|------|
+| `setblsctseed` | Set/restore BLSCT wallet seed | src/blsct/wallet/rpc.cpp | 1131 |
+| `getblsctseed` | Export BLSCT wallet seed | src/wallet/rpc/backup.cpp | 691 |
+| `getblsctauditkey` | Get audit (view) key for watch-only | src/wallet/rpc/backup.cpp | 721 |
+| `createblsctbalanceproof` | Create proof of balance (reserve proof) | src/blsct/wallet/rpc.cpp | 1187 |
+| `unlockblsctoutpoint` | Unlock a locked BLSCT outpoint | src/blsct/wallet/rpc.cpp | 1821 |
+| `getblsctrecoverydata` | Get recovery data for BLSCT outputs | src/blsct/wallet/rpc.cpp | 1991 |
+| `generatetoblsctaddress` | Mine blocks to a BLSCT address (testnet) | src/rpc/mining.cpp | 280 |
+
+> **Important:** `getnewaddress` works natively with BLSCT wallets — it does NOT need a BLSCT variant or remapping. When a wallet is created with `blsct=true`, `getnewaddress` auto-defaults to `OutputType::BLSCT` and returns a BLSCT bech32m address (e.g., `tnv1...` on testnet). You can also pass `address_type="blsct"` explicitly. Source: `src/wallet/rpc/addresses.cpp:47`.
+
+> **Warning:** `listblscttransactions` is currently a **stub** in navio-core — the implementation is commented out (`src/blsct/wallet/rpc.cpp:1102-1112`) and returns an empty array. Do not rely on it for transaction history. `listblsctunspent` works correctly for confirmed UTXOs.
+
+> **Warning:** BLSCT has **no unconfirmed UTXO visibility**. `AvailableBlsctCoins()` in navio-core hardcodes skip for `nDepth == 0` (`src/wallet/spend.cpp:502-505`). Payments are only visible after 1 confirmation.
+
+Wallet features confirmed: BLSCT wallets, confidential transactions, sub-address derivation from seed, balance proofs, atomic swaps.
 
 ## Implementation Steps
 
@@ -160,144 +190,9 @@ After implementation, push each fork's `navio-support` branch and open draft PRs
 **Repo:** `mxaddict/NBitcoin` (fork of `MetacoSA/NBitcoin`)
 **Branch:** `navio-support`
 
-#### 1a. Create `NBitcoin.Altcoins/Navio.cs`
+#### 1a. `NBitcoin.Altcoins/Navio.cs` — already created
 
-This file defines the Navio network for NBitcoin. Follow the exact pattern of `Litecoin.cs` or `Groestlcoin.cs`.
-
-```csharp
-using NBitcoin;
-using NBitcoin.DataEncoders;
-using NBitcoin.Protocol;
-using System;
-using System.Linq;
-
-namespace NBitcoin.Altcoins
-{
-    public class Navio : NetworkSetBase
-    {
-        public static Navio Instance { get; } = new Navio();
-        public override string CryptoCode => "NAV";
-
-        private Navio()
-        {
-        }
-
-        protected override void PostInit()
-        {
-            RegisterDefaultCookiePath("Navio",
-                new FolderName() { TestnetFolder = "testnet5" });
-        }
-
-        // Navio testnet uses BLSCT genesis (custom block format).
-        // The consensus factory stays Bitcoin-compatible for standard
-        // P2PKH/P2SH/P2WPKH/P2WSH transactions that BTCPayServer uses.
-
-        protected override NetworkBuilder CreateTestnet()
-        {
-            return new NetworkBuilder()
-                .SetConsensus(new Consensus()
-                {
-                    SubsidyHalvingInterval = 210000,
-                    MajorityEnforceBlockUpgrade = 51,
-                    MajorityRejectBlockOutdated = 75,
-                    MajorityWindow = 100,
-                    PowTargetTimespan = TimeSpan.FromSeconds(14 * 24 * 60 * 60),
-                    PowTargetSpacing = TimeSpan.FromSeconds(10 * 60),
-                    PowAllowMinDifficultyBlocks = true,
-                    PowNoRetargeting = true,
-                    CoinbaseMaturity = 100,
-                    ConsensusFactory = BitcoinConsensusFactory.Instance,
-                    SupportSegwit = true,
-                    SupportTaproot = true,
-                })
-                .SetBase58Bytes(Base58Type.PUBKEY_ADDRESS, new byte[] { 111 })
-                .SetBase58Bytes(Base58Type.SCRIPT_ADDRESS, new byte[] { 196 })
-                .SetBase58Bytes(Base58Type.SECRET_KEY, new byte[] { 239 })
-                .SetBase58Bytes(Base58Type.EXT_PUBLIC_KEY, new byte[] { 0x04, 0x35, 0x87, 0xCF })
-                .SetBase58Bytes(Base58Type.EXT_SECRET_KEY, new byte[] { 0x04, 0x35, 0x83, 0x94 })
-                .SetBech32(Bech32Type.WITNESS_PUBKEY_ADDRESS, Encoders.Bech32("tb"))
-                .SetBech32(Bech32Type.WITNESS_SCRIPT_ADDRESS, Encoders.Bech32("tb"))
-                .SetMagic(0xdf0e3cb9)  // bytes: b9 3c 0e df → LE uint32
-                .SetPort(33570)
-                .SetRPCPort(33577)
-                .SetMaxP2PVersion(70016)
-                .SetName("nav-test")
-                .SetNetworkStringParser(new BitcoinStringParser())
-                .SetGenesis("GENESIS_HEX_HERE");
-                // To get genesis hex: navio-cli -testnet getblock \
-                //   57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b 0
-        }
-
-        // Mainnet stub — not ready yet (fBLSCT=false on mainnet, chainparams incomplete)
-        protected override NetworkBuilder CreateMainnet()
-        {
-            return new NetworkBuilder()
-                .SetConsensus(new Consensus()
-                {
-                    SubsidyHalvingInterval = 210000,
-                    MajorityEnforceBlockUpgrade = 750,
-                    MajorityRejectBlockOutdated = 950,
-                    MajorityWindow = 1000,
-                    PowTargetTimespan = TimeSpan.FromSeconds(14 * 24 * 60 * 60),
-                    PowTargetSpacing = TimeSpan.FromSeconds(10 * 60),
-                    PowAllowMinDifficultyBlocks = false,
-                    PowNoRetargeting = false,
-                    CoinbaseMaturity = 100,
-                    ConsensusFactory = BitcoinConsensusFactory.Instance,
-                    SupportSegwit = true,
-                    SupportTaproot = true,
-                })
-                .SetBase58Bytes(Base58Type.PUBKEY_ADDRESS, new byte[] { 0 })
-                .SetBase58Bytes(Base58Type.SCRIPT_ADDRESS, new byte[] { 5 })
-                .SetBase58Bytes(Base58Type.SECRET_KEY, new byte[] { 128 })
-                .SetBase58Bytes(Base58Type.EXT_PUBLIC_KEY, new byte[] { 0x04, 0x88, 0xB2, 0x1E })
-                .SetBase58Bytes(Base58Type.EXT_SECRET_KEY, new byte[] { 0x04, 0x88, 0xAD, 0xE4 })
-                .SetBech32(Bech32Type.WITNESS_PUBKEY_ADDRESS, Encoders.Bech32("bc"))
-                .SetBech32(Bech32Type.WITNESS_SCRIPT_ADDRESS, Encoders.Bech32("bc"))
-                .SetMagic(0xacb1d2db)  // bytes: db d2 b1 ac → LE uint32
-                .SetPort(8333)
-                .SetRPCPort(48484)
-                .SetMaxP2PVersion(70016)
-                .SetName("nav-main")
-                .SetNetworkStringParser(new BitcoinStringParser())
-                .SetGenesis("GENESIS_HEX_HERE");
-                // To get genesis hex: navio-cli getblock \
-                //   00000000e563d370b42d83c98b811fb1bda076dd6c2b01dac9c1e21104c25277 0
-        }
-
-        protected override NetworkBuilder CreateRegtest()
-        {
-            // Regtest has fBLSCT=false, not useful for Navio testing.
-            // Return null network so it's not registered.
-            return new NetworkBuilder()
-                .SetConsensus(new Consensus()
-                {
-                    ConsensusFactory = BitcoinConsensusFactory.Instance,
-                    SupportSegwit = true,
-                    SupportTaproot = true,
-                })
-                .SetName("nav-reg")
-                .SetGenesis("GENESIS_HEX_HERE");
-        }
-    }
-}
-```
-
-**Important — Getting genesis hex:**
-
-The `SetGenesis()` call requires the raw serialized genesis block in hex. Obtain it from a running Navio node:
-
-```bash
-# Testnet genesis
-./navio-cli -testnet getblock \
-  57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b 0
-
-# Mainnet genesis (for later)
-./navio-cli getblock \
-  00000000e563d370b42d83c98b811fb1bda076dd6c2b01dac9c1e21104c25277 0
-```
-
-Replace `"GENESIS_HEX_HERE"` with the output.
+**Status:** Done. File exists at `NBitcoin/NBitcoin.Altcoins/Navio.cs` with real genesis hex for testnet, mainnet, and regtest. No changes needed unless chain parameters change.
 
 #### 1b. Register in `NBitcoin.Altcoins/AltcoinNetworkSets.cs`
 
@@ -311,6 +206,189 @@ And in `GetAll()`:
 ```csharp
 yield return Navio;
 ```
+
+#### 1c. Add BLSCT RPC operations to `NBitcoin/RPC/RPCOperations.cs`
+
+**File:** `NBitcoin/NBitcoin/RPC/RPCOperations.cs`
+
+The enum currently ends at line 130-131:
+```csharp
+		disconnectnode,
+		importdescriptors
+	}
+}
+```
+
+Add the BLSCT entries **before the closing brace**, after `importdescriptors`. Add a trailing comma to `importdescriptors`:
+
+```csharp
+		disconnectnode,
+		importdescriptors,
+
+		// BLSCT wallet operations (Navio)
+		getblsctbalance,
+		sendtoblsctaddress,
+		listblsctunspent,
+		listblscttransactions,
+		createblsctrawtransaction,
+		fundblsctrawtransaction,
+		signblsctrawtransaction,
+		decodeblsctrawtransaction,
+		setblsctseed,
+		getblsctseed,
+		getblsctauditkey,
+		createblsctbalanceproof,
+		unlockblsctoutpoint,
+		getblsctrecoverydata,
+		generatetoblsctaddress
+	}
+}
+```
+
+#### 1d. Add RPC method name remapping to `NBitcoin/RPC/RPCClient.cs`
+
+**File:** `NBitcoin/NBitcoin/RPC/RPCClient.cs`
+
+NBitcoin's `RPCClient` has **no per-chain RPC override mechanism**. All wallet methods are non-virtual and hardcode standard Bitcoin RPC names. The fix is a `Dictionary<string, string>` remapping layer.
+
+**Step 1: Add the property.** Find the class body (it's a `partial class RPCClient`). Add this property near the other public properties at the top of the class:
+
+```csharp
+/// <summary>
+/// Per-chain RPC method name overrides. When set, SendCommandAsync
+/// will remap method names before sending to the daemon.
+/// Example: {"getbalance": "getblsctbalance"} causes all getbalance
+/// calls to be sent as getblsctbalance to the daemon.
+/// </summary>
+public Dictionary<string, string> RPCMethodOverrides { get; set; }
+```
+
+**Step 2: Modify `SendCommandAsync` (line 672-675).** Current code:
+```csharp
+public Task<RPCResponse> SendCommandAsync(string commandName, CancellationToken cancellationToken, params object[] parameters)
+{
+    return SendCommandAsync(new RPCRequest(commandName, parameters), cancellationToken: cancellationToken);
+}
+```
+
+Replace with:
+```csharp
+public Task<RPCResponse> SendCommandAsync(string commandName, CancellationToken cancellationToken, params object[] parameters)
+{
+    if (RPCMethodOverrides != null && RPCMethodOverrides.TryGetValue(commandName, out var remapped))
+        commandName = remapped;
+    return SendCommandAsync(new RPCRequest(commandName, parameters), cancellationToken: cancellationToken);
+}
+```
+
+**Step 3: Modify `SendCommandWithNamedArgsAsync` (line 661-664).** Current code:
+```csharp
+public Task<RPCResponse> SendCommandWithNamedArgsAsync(string commandName, Dictionary<string, object> parameters, CancellationToken cancellationToken)
+{
+    return SendCommandAsync(new RPCRequest() { Method = commandName, NamedParams = parameters }, cancellationToken);
+}
+```
+
+Replace with:
+```csharp
+public Task<RPCResponse> SendCommandWithNamedArgsAsync(string commandName, Dictionary<string, object> parameters, CancellationToken cancellationToken)
+{
+    if (RPCMethodOverrides != null && RPCMethodOverrides.TryGetValue(commandName, out var remapped))
+        commandName = remapped;
+    return SendCommandAsync(new RPCRequest() { Method = commandName, NamedParams = parameters }, cancellationToken);
+}
+```
+
+> **Note:** The sync variant `SendCommandWithNamedArgs` (line 656-659) also goes through `SendCommandAsync`, so it will pick up the remapping automatically. No separate change needed.
+
+#### 1e. Add `blsct` parameter to `CreateWalletOptions`
+
+**File:** `NBitcoin/NBitcoin/RPC/CreateWalletOptions.cs`
+
+Current full file content (16 lines):
+```csharp
+#nullable enable
+
+namespace NBitcoin.RPC
+{
+	public class CreateWalletOptions
+	{
+		public bool? DisablePrivateKeys { get; set; } 
+		public bool? Blank { get; set; } 
+		public string? Passphrase { get; set; } 
+		public bool? AvoidReuse { get; set; }
+		public bool? Descriptors { get; set; }
+		public bool? LoadOnStartup { get; set; }
+	}
+}
+
+#nullable restore
+```
+
+Add `Blsct` property after `LoadOnStartup`:
+```csharp
+		public bool? LoadOnStartup { get; set; }
+		public bool? Blsct { get; set; }
+```
+
+**File:** `NBitcoin/NBitcoin/RPC/RPCClient.Wallet.cs`
+
+In `CreateWalletAsync` (line 154-175), add the `blsct` parameter handling. Current code at lines 169-173:
+```csharp
+			if (options?.Descriptors is bool descriptors)
+				parameters.Add("descriptors", descriptors);
+			if (options?.LoadOnStartup is bool loadOnStartup)
+				parameters.Add("load_on_startup", loadOnStartup);
+			var result = await SendCommandWithNamedArgsAsync(RPCOperations.createwallet.ToString(), parameters, cancellationToken).ConfigureAwait(false);
+```
+
+Add after the `LoadOnStartup` check, before the `SendCommand`:
+```csharp
+			if (options?.Descriptors is bool descriptors)
+				parameters.Add("descriptors", descriptors);
+			if (options?.LoadOnStartup is bool loadOnStartup)
+				parameters.Add("load_on_startup", loadOnStartup);
+			if (options?.Blsct is bool blsct)
+				parameters.Add("blsct", blsct);
+			var result = await SendCommandWithNamedArgsAsync(RPCOperations.createwallet.ToString(), parameters, cancellationToken).ConfigureAwait(false);
+```
+
+#### 1f. Configure Navio network with BLSCT RPC remappings
+
+**File:** `NBitcoin/NBitcoin.Altcoins/Navio.cs`
+
+Add this static method inside the `Navio` class body, after the `PostInit()` method and before `CreateTestnet()`. The file needs `using NBitcoin.RPC;` and `using System.Collections.Generic;` added to the imports.
+
+```csharp
+using NBitcoin.RPC;           // add to top of file
+using System.Collections.Generic;  // add to top of file
+```
+
+Insert after `PostInit()`:
+```csharp
+        /// <summary>
+        /// Configures an RPCClient with BLSCT method name overrides for Navio.
+        /// Call this after creating an RPCClient connected to a Navio daemon.
+        /// </summary>
+        public static void ConfigureBLSCTOverrides(RPCClient client)
+        {
+            client.RPCMethodOverrides = new Dictionary<string, string>
+            {
+                { "getbalance",                    "getblsctbalance" },
+                { "sendtoaddress",                 "sendtoblsctaddress" },
+                { "listunspent",                   "listblsctunspent" },
+                { "listtransactions",              "listblscttransactions" },
+                { "createrawtransaction",          "createblsctrawtransaction" },
+                { "fundrawtransaction",            "fundblsctrawtransaction" },
+                { "signrawtransactionwithwallet",  "signblsctrawtransaction" },
+                { "decoderawtransaction",          "decodeblsctrawtransaction" },
+            };
+        }
+```
+
+> **Important:** `createwallet` and `getnewaddress` are NOT in this remap dict. `createwallet` stays as-is — BLSCT is enabled via the `blsct=true` parameter. `getnewaddress` auto-detects `WALLET_FLAG_BLSCT` and defaults to `OutputType::BLSCT` — no remapping needed.
+
+NBXplorer will call `Navio.ConfigureBLSCTOverrides(client)` when initializing the RPC connection for Navio.
 
 ---
 
@@ -354,6 +432,183 @@ In the constructor, add after the other `Init` calls:
 
 ```csharp
 InitNavio(networkType);
+```
+
+#### 2c. Apply BLSCT RPC overrides on Navio RPC client initialization
+
+**File:** `NBXplorer/NBXplorer/RPCClientExtensions.cs`
+
+The `EnsureWalletCreated` method starts at line 249. Current code (lines 249-261):
+```csharp
+public static async Task EnsureWalletCreated(this RPCClient client, ILogger logger)
+{
+    var network = client.Network.NetworkSet;
+    var walletName = client.CredentialString.WalletName ?? "";
+    bool created = false;
+    try
+    {
+        await client.CreateWalletAsync(walletName, new CreateWalletOptions()
+        {
+            LoadOnStartup = true,
+            Blank = client.Network.ChainName != ChainName.Regtest
+        });
+        logger.LogInformation($"{network.CryptoCode}: Created RPC wallet \"{walletName}\"");
+        created = true;
+    }
+```
+
+Make two changes:
+
+**Change 1:** Add BLSCT override application at the start of the method (after `var network =`, before `var walletName =`):
+```csharp
+    var network = client.Network.NetworkSet;
+    // Apply BLSCT RPC overrides for Navio
+    if (network is NBitcoin.Altcoins.Navio)
+    {
+        NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+    }
+    var walletName = client.CredentialString.WalletName ?? "";
+```
+
+**Change 2:** Add `Blsct = true` to the `CreateWalletOptions` for Navio:
+```csharp
+        await client.CreateWalletAsync(walletName, new CreateWalletOptions()
+        {
+            LoadOnStartup = true,
+            Blank = client.Network.ChainName != ChainName.Regtest,
+            Blsct = network is NBitcoin.Altcoins.Navio ? true : null
+        });
+```
+
+> **Note:** `createwallet` is NOT in the remap dict, so it goes to the daemon as `createwallet` with the `blsct=true` parameter. The remapping only affects subsequent wallet RPC calls (`getbalance` → `getblsctbalance`, etc.).
+
+#### 2d. BLSCT-aware address generation — `getnewaddress` works, skip descriptor import
+
+**Finding:** `getnewaddress` **works natively with BLSCT wallets**. When a wallet is created with `blsct=true`, `getnewaddress` auto-defaults to `OutputType::BLSCT` and returns a BLSCT bech32m address with the `tnv` HRP (testnet). No separate BLSCT address RPC is needed.
+
+Source: `navio-core/src/wallet/rpc/addresses.cpp:47` — the wallet checks `WALLET_FLAG_BLSCT` and defaults `output_type = OutputType::BLSCT`. Alternatively, pass `address_type="blsct"` explicitly.
+
+**`getnewaddress` does NOT need to be remapped.** It already works correctly on BLSCT wallets. Do NOT add it to the `RPCMethodOverrides` dict.
+
+**However, `importdescriptors` must be skipped.** BLSCT wallets disable descriptors entirely (`WALLET_FLAG_BLSCT` clears `WALLET_FLAG_DESCRIPTORS` — see `navio-core/src/wallet/rpc/wallet.cpp:418`). The daemon's `blsct::KeyMan` manages sub-address derivation internally from the BLSCT seed. Standard `wpkh()`/`tr()` descriptors are incompatible.
+
+**File:** `NBXplorer/NBXplorer/Backend/Repository.cs`
+
+**In `ImportDescriptorToRPCIfNeeded` (~line 248):**
+```csharp
+private async Task ImportDescriptorToRPCIfNeeded(...)
+{
+    // BLSCT wallets don't use descriptors — the daemon derives
+    // sub-addresses from the BLSCT seed internally via blsct::KeyMan.
+    // importdescriptors would fail (WALLET_FLAG_DESCRIPTORS is cleared).
+    if (rpc.Network.NetworkSet is NBitcoin.Altcoins.Navio)
+        return;
+
+    // ... existing descriptor import logic ...
+}
+```
+
+**In `GenerateAddressesCore` (~line 174):**
+For Navio, NBXplorer should call `getnewaddress` on the daemon to get each new BLSCT sub-address, rather than deriving addresses client-side from an xpub. The daemon handles the BLS key derivation and sub-address pool internally.
+
+```csharp
+// For Navio BLSCT: get addresses from daemon, not client-side derivation
+if (rpc.Network.NetworkSet is NBitcoin.Altcoins.Navio)
+{
+    var address = await rpc.GetNewAddressAsync(cancellationToken);
+    // Store address in NBXplorer's tracking database
+    // ...
+    return;
+}
+```
+
+> **Note:** This means Navio address generation is daemon-dependent. NBXplorer cannot generate addresses offline or from an xpub. The daemon wallet must be running and loaded.
+
+#### 2e. BLSCT-aware UTXO scanning — use `listblsctunspent`, skip `scantxoutset`
+
+**Finding:** BLSCT output detection requires the daemon's private view key + sub-address pool. External tools cannot identify BLSCT outputs. NBXplorer **must rely on the daemon wallet** for all UTXO discovery.
+
+**`listblsctunspent`** (via remapped `listunspent`) is the primary discovery mechanism. It returns:
+- `outid` — output hash (not txid — BLSCT uses per-output identifiers)
+- `address` — decoded BLSCT address
+- `amount` — decrypted from range proof
+- `confirmations`, `spendable`, `scriptPubKey`
+
+**Limitations:**
+- **Confirmed only** — `AvailableBlsctCoins()` in navio-core hardcodes skip for `nDepth == 0` (`spend.cpp:502-505`). Unconfirmed BLSCT UTXOs are never returned, even with `minconf=0`.
+- **`listblscttransactions` is a stub** — the implementation is commented out (`rpc.cpp:1102-1112`), returns empty array. Cannot be used for transaction history until navio-core fixes this.
+
+**`-walletnotify`** fires for new BLSCT outputs with `%s` = outpoint hash (not txid). NBXplorer can use this for push notifications, then poll `listblsctunspent` for details.
+
+**File:** `NBXplorer/NBXplorer/ScanUTXOSetService.cs`
+
+In `GetScannedItems` (~line 294), skip `scantxoutset` for Navio and use `listblsctunspent` instead:
+```csharp
+if (network.NBitcoinNetwork.NetworkSet is NBitcoin.Altcoins.Navio)
+{
+    // BLSCT outputs are blinded — scantxoutset cannot identify them.
+    // The daemon wallet handles detection via the private view key.
+    // NBXplorer should poll listblsctunspent (remapped from listunspent)
+    // for confirmed UTXOs instead.
+    return null; // Skip scantxoutset for Navio
+}
+```
+
+> **Impact on payment detection:** BTCPayServer invoices typically watch for unconfirmed payments first, then track confirmations. Since BLSCT has no unconfirmed UTXO visibility, Navio payments will only appear after 1 confirmation (~1 min with PoS). This is acceptable for testnet but may need a navio-core fix for production use.
+
+#### 2f. BLSCT transaction creation — use `sendtoblsctaddress`, skip PSBT entirely
+
+**Finding:** `sendtoblsctaddress` is a **single-call create+fund+sign+broadcast operation**, identical in pattern to Bitcoin's `sendtoaddress`. It handles coin selection, change address generation, BLSCT range proof creation, BLS signature aggregation, and broadcast — all in one RPC call. Returns a txid hex string (same format as `sendtoaddress`).
+
+There is **no BLSCT PSBT support** in navio-core. The `UnsignedTransaction` format exists for advanced use cases (external signing, atomic swaps) but is NOT needed for BTCPayServer's standard payment flow.
+
+**This is the simplest integration path:** Since `sendtoblsctaddress` is remapped from `sendtoaddress` (via step 1f), any code that calls `sendtoaddress` on the Navio RPC client will automatically route to `sendtoblsctaddress`. The return format (txid) is identical.
+
+**File:** `NBXplorer/Controllers/MainController.PSBT.cs`
+
+For the PSBT creation endpoint, skip the PSBT flow for Navio since BTCPayServer's hot wallet can use `sendtoblsctaddress` directly:
+
+```csharp
+if (network.NBitcoinNetwork.NetworkSet is NBitcoin.Altcoins.Navio)
+{
+    // BLSCT does not support PSBT. Use sendtoblsctaddress
+    // (remapped from sendtoaddress) for direct send instead.
+    // The multi-step create+fund+sign flow is not needed.
+    throw new NotSupportedException(
+        "PSBT is not supported for Navio BLSCT transactions. " +
+        "Use the direct send API (sendtoaddress → sendtoblsctaddress) instead.");
+}
+```
+
+**For the multi-step flow** (advanced use cases only, not needed for initial integration):
+1. `createblsctrawtransaction` (remapped from `createrawtransaction`) — creates `UnsignedTransaction` hex
+2. `fundblsctrawtransaction` (remapped from `fundrawtransaction`) — adds inputs + change, returns funded `UnsignedTransaction` hex
+3. `signblsctrawtransaction` (remapped from `signrawtransactionwithwallet`) — signs and returns standard `CTransaction` hex
+4. `sendrawtransaction` — broadcasts (standard, no remapping needed)
+
+> **Note:** BTCPayServer's wallet UI has both a "hot wallet" mode (server-side signing) and a "watch-only + external signer" mode. The hot wallet mode can use `sendtoblsctaddress` directly. The watch-only mode would need the multi-step flow with external signing, but BLSCT external signing requires sharing BLSCT private keys, which defeats the purpose. For initial testnet integration, hot wallet mode is sufficient.
+
+#### 2g. Add BLSCT methods to RPC proxy whitelist
+
+**File:** `NBXplorer/Controllers/MainController.cs`
+
+Add BLSCT wallet methods to `WhitelistedRPCMethods` (~line 83) so they can be called through NBXplorer's RPC proxy:
+
+```csharp
+static HashSet<string> WhitelistedRPCMethods = new HashSet<string>()
+{
+    // ... existing methods ...
+    // BLSCT wallet methods (Navio)
+    "getblsctbalance",
+    "sendtoblsctaddress",
+    "listblsctunspent",
+    "listblscttransactions",
+    "createblsctrawtransaction",
+    "fundblsctrawtransaction",
+    "signblsctrawtransaction",
+    "decodeblsctrawtransaction",
+    "createblsctbalanceproof",
+};
 ```
 
 ---
@@ -427,6 +682,21 @@ if (selectedChains.Contains("NAV"))  InitNavio(services);
 
 Place an SVG icon at `BTCPayServer/wwwroot/imlegacy/navio.svg`.
 
+#### 3d. BLSCT wallet generation considerations
+
+BTCPayServer's wallet generation UI assumes BIP32 HD key derivation with xpub-based derivation strategies. For Navio, the wallet is seed-based (BLSCT seed), not xpub-based. The wallet generation flow needs adaptation:
+
+- **No xpub import:** Navio BLSCT wallets don't use extended public keys. Instead, the BLSCT seed is set via `setblsctseed` or generated at `createwallet` time.
+- **No derivation path selection:** BLSCT doesn't use BIP44/49/84/86 derivation paths. The daemon handles sub-address derivation internally.
+- **Watch-only via audit key:** Instead of importing an xpub for watch-only, use `getblsctauditkey` to export the audit (view) key.
+
+**For initial testnet integration**, the simplest approach is:
+1. Let NBXplorer's `EnsureWalletCreated` create the BLSCT wallet on the daemon
+2. The daemon self-manages address generation
+3. BTCPayServer displays the daemon-generated addresses for payment
+
+The wallet import/generation UI customization can be deferred — the core payment flow (generate address → detect payment → confirm) should work through NBXplorer's standard APIs once the BLSCT RPC layer is correct.
+
 ---
 
 ### Step 4: btcpayserver-docker — Docker Fragment
@@ -492,6 +762,20 @@ required:
 }
 ```
 
+#### 4c. Create `navio-cli.sh` wrapper script
+
+Every altcoin in btcpayserver-docker has a CLI wrapper script in the repo root. Create `navio-cli.sh`:
+
+```bash
+#!/bin/bash
+
+docker exec btcpayserver_naviod navio-cli -datadir="/data" "$@"
+```
+
+Make executable: `chmod +x navio-cli.sh`
+
+This follows the exact pattern of `litecoin-cli.sh`, `dogecoin-cli.sh`, `groestlcoin-cli.sh`, etc.
+
 ---
 
 ## Navio Daemon File Locations
@@ -517,25 +801,46 @@ Binaries appear in `./src/`.
 
 ## Testing Checklist
 
-- [ ] NBitcoin: Navio testnet network parses addresses correctly
-- [ ] NBXplorer: indexes Navio testnet blocks and tracks transactions
+### Foundation
+- [ ] NBitcoin: Navio testnet network parses BLSCT `tnv` addresses correctly
+- [ ] NBitcoin: RPC method remapping works (`getbalance` → `getblsctbalance`, etc.)
+- [ ] NBitcoin: `CreateWalletAsync` passes `blsct=true` for Navio
+
+### NBXplorer ↔ Daemon
+- [ ] NBXplorer: creates BLSCT wallet on Navio daemon (`createwallet` with `blsct=true`)
+- [ ] NBXplorer: BLSCT RPC overrides are active for Navio connections
+- [ ] NBXplorer: `getblsctbalance` returns correct balance via remapped `getbalance`
+- [ ] NBXplorer: `listblsctunspent` returns BLSCT UTXOs via remapped `listunspent`
+- [ ] NBXplorer: `listblscttransactions` returns transaction history
+- [ ] NBXplorer: indexes Navio testnet blocks and tracks BLSCT transactions
+- [ ] NBXplorer: descriptor import is correctly skipped for Navio (BLSCT seed-based)
+
+### BTCPayServer
 - [ ] BTCPayServer: Navio appears as available cryptocurrency
 - [ ] BTCPayServer: can create store with Navio payment method
-- [ ] BTCPayServer: generates valid `tb1` testnet addresses
-- [ ] BTCPayServer: receives testnet payment and confirms invoice
+- [ ] BTCPayServer: generates valid BLSCT `tnv` testnet addresses
+- [ ] BTCPayServer: receives testnet BLSCT payment and confirms invoice
 - [ ] BTCPayServer: webhook fires on payment confirmation
-- [ ] BTCPayServer: refund flow works
+- [ ] BTCPayServer: refund flow works with BLSCT transactions
+
+### Transaction Flow
+- [ ] `sendtoblsctaddress` works via remapped `sendtoaddress`
+- [ ] `fundblsctrawtransaction` + `signblsctrawtransaction` produce valid BLSCT transactions
+- [ ] `sendrawtransaction` broadcasts BLSCT transactions successfully
+
+### Docker
 - [ ] Docker: `naviod` container starts and syncs testnet
 - [ ] Docker: NBXplorer connects to naviod and indexes chain
+- [ ] Docker: `navio-cli.sh` wrapper works correctly
 
 ## PR Submission Order
 
 PRs depend on each other. Submit in this order from each `mxaddict` fork:
 
-1. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition
-2. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration (depends on #1 being merged/released as NuGet)
-3. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin (depends on #2)
-4. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment (independent, can go in parallel)
+1. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition + RPC method remapping mechanism + BLSCT RPC operations + `CreateWalletOptions.Blsct`
+2. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration + BLSCT RPC overrides + skip descriptor import + BLSCT UTXO scanning + BLSCT tx creation + RPC whitelist (depends on #1 being merged/released as NuGet)
+3. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin + BLSCT wallet generation considerations (depends on #2)
+4. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment + `navio-cli.sh` (independent, can go in parallel)
 
 Submit each PR as a **draft** (WIP) using `gh` from inside the fork directory:
 
@@ -574,3 +879,4 @@ EOF
 - [BTCPayServer Docker fragments](https://github.com/btcpayserver/btcpayserver-docker/tree/master/docker-compose-generator/docker-fragments)
 - [Navio Chain Parameters](navio-core/src/kernel/chainparams.cpp)
 - [Navio RPC Interface](navio-core/doc/JSON-RPC-interface.md)
+- [Navio BLSCT Wallet RPCs](navio-core/src/blsct/wallet/rpc.cpp) — all BLSCT wallet RPC implementations
