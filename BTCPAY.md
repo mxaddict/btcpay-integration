@@ -235,6 +235,8 @@ Type sizes (from `blsct.h` constants):
 </Project>
 ```
 
+> **Note:** Keep the C# binding on `net8.0` to match BTCPayServer's C# stack. Local builds and CI should install the .NET 8 runtime/SDK.
+
 #### 0b-iv. Create `ffi/csharp/Blsct.cs`
 
 ```csharp
