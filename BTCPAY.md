@@ -171,17 +171,174 @@ The resulting repo structure:
 
 ```
 btcpay-integration/
-├── BTCPAY.md              ← This integration plan
-├── NBitcoin/              ← mxaddict/NBitcoin (fork of MetacoSA/NBitcoin)
-├── NBXplorer/             ← mxaddict/NBXplorer (fork of dgarage/NBXplorer)
-├── btcpayserver/          ← mxaddict/btcpayserver (fork of btcpayserver/btcpayserver)
-├── btcpayserver-docker/   ← mxaddict/btcpayserver-docker (fork of btcpayserver/btcpayserver-docker)
-└── navio-core/            ← nav-io/navio-core (chain params reference)
+├── BTCPAY.md                  ← This integration plan
+├── NBitcoin/                  ← mxaddict/NBitcoin (fork of MetacoSA/NBitcoin)
+├── NBXplorer/                 ← mxaddict/NBXplorer (fork of dgarage/NBXplorer)
+├── btcpayserver/              ← mxaddict/btcpayserver (fork of btcpayserver/btcpayserver)
+├── btcpayserver-docker/       ← mxaddict/btcpayserver-docker (fork of btcpayserver/btcpayserver-docker)
+├── navio-core/                ← nav-io/navio-core (chain params reference + external C API source)
+└── libblsct-bindings/         ← mxaddict/libblsct-bindings (fork of nav-io/libblsct-bindings)
 ```
 
 The `navio-core` submodule is read-only reference. When testnet parameters change or mainnet is ready, update the submodule pointer, read the new values from `src/kernel/chainparams.cpp`, and propagate them to the 4 fork submodules.
 
 After implementation, push each fork's `navio-support` branch and open draft PRs — see **PR Submission Order** section below.
+
+---
+
+### Step 0b: libblsct-bindings — Add C# P/Invoke Layer
+
+**Repo:** `mxaddict/libblsct-bindings` (fork of `nav-io/libblsct-bindings`)
+**Branch:** `csharp-support`
+**PR target:** `nav-io/libblsct-bindings`
+
+`libblsct-bindings` already has Python, TypeScript, and Rust FFI wrappers over navio-core's external C API (`src/blsct/external_api/blsct.h`). This step adds a minimal C# P/Invoke layer covering only what address generation needs.
+
+**Status:** Not yet implemented.
+
+#### 0b-i. Fork and add submodule
+
+```bash
+gh repo fork nav-io/libblsct-bindings --clone=false
+git submodule add git@github.com:mxaddict/libblsct-bindings.git libblsct-bindings
+cd libblsct-bindings && git checkout -b csharp-support && cd ..
+```
+
+#### 0b-ii. Existing C API functions needed
+
+All required functions already exist in `navio-core/src/blsct/external_api/blsct.h`:
+
+| C function | Signature | Purpose |
+|------------|-----------|---------|
+| `gen_sub_addr_id` | `BlsctSubAddrId* gen_sub_addr_id(int64_t account, uint64_t address)` | Create sub-address identifier |
+| `derive_sub_address` | `BlsctSubAddr* derive_sub_address(BlsctScalar*, BlsctPubKey*, BlsctSubAddrId*)` | Derive sub-address from view+spend keys |
+| `encode_address` | `BlsctRetVal* encode_address(BlsctSubAddr*, const char* hrp)` | Encode as bech32m string |
+| `decode_address` | `BlsctRetVal* decode_address(const char* addr, const char* hrp)` | Decode bech32m string |
+| `free_obj` | `void free_obj(void*)` | Free C heap objects |
+
+Type sizes (from `blsct.h` constants):
+- `BlsctScalar`   = 32 bytes (`SCALAR_SIZE`)
+- `BlsctPubKey`   = 48 bytes (`PUBLIC_KEY_SIZE`)
+- `BlsctSubAddr`  = 96 bytes (`SUB_ADDR_SIZE`)
+- `BlsctSubAddrId` = 16 bytes (`SUB_ADDR_ID_SIZE`) — int64 account + uint64 address
+
+#### 0b-iii. Create `ffi/csharp/NavioBlsct.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>NavioBlsct</PackageId>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+</Project>
+```
+
+#### 0b-iv. Create `ffi/csharp/Blsct.cs`
+
+```csharp
+using System;
+using System.Runtime.InteropServices;
+
+namespace NavioBlsct
+{
+    /// <summary>
+    /// P/Invoke bindings to navio-core's blsct external C API.
+    /// The native library (libblsct.so / blsct.dll) must be on the library path.
+    /// </summary>
+    public static unsafe class Blsct
+    {
+        private const string Lib = "blsct"; // libblsct.so or blsct.dll
+
+        // --- Raw P/Invoke declarations ---
+
+        [DllImport(Lib)] private static extern IntPtr gen_sub_addr_id(long account, ulong address);
+        [DllImport(Lib)] private static extern IntPtr derive_sub_address(byte* viewKey, byte* spendKey, IntPtr subAddrId);
+        [DllImport(Lib)] private static extern IntPtr encode_address(IntPtr subAddr, [MarshalAs(UnmanagedType.LPStr)] string hrp);
+        [DllImport(Lib)] private static extern IntPtr decode_address([MarshalAs(UnmanagedType.LPStr)] string addr, [MarshalAs(UnmanagedType.LPStr)] string hrp);
+        [DllImport(Lib)] private static extern void   free_obj(IntPtr obj);
+
+        // BlsctRetVal has a char* str field at offset 0 (see blsct.h)
+        [DllImport(Lib)] private static extern IntPtr get_blsct_ret_val_str(IntPtr retVal);
+
+        // --- Managed API ---
+
+        /// <summary>Creates a sub-address identifier for (account, index).</summary>
+        public static IntPtr GenSubAddrId(long account, ulong index) =>
+            gen_sub_addr_id(account, index);
+
+        /// <summary>
+        /// Derives a BLSCT sub-address from view key + spending key + identifier.
+        /// </summary>
+        /// <param name="viewKeyBytes">32 bytes (Fr scalar)</param>
+        /// <param name="spendKeyBytes">48 bytes (G1 point)</param>
+        /// <param name="subAddrId">Handle from GenSubAddrId</param>
+        public static IntPtr DeriveSubAddress(byte[] viewKeyBytes, byte[] spendKeyBytes, IntPtr subAddrId)
+        {
+            if (viewKeyBytes.Length  != 32) throw new ArgumentException("View key must be 32 bytes");
+            if (spendKeyBytes.Length != 48) throw new ArgumentException("Spend key must be 48 bytes");
+            fixed (byte* vk = viewKeyBytes, sk = spendKeyBytes)
+                return derive_sub_address(vk, sk, subAddrId);
+        }
+
+        /// <summary>Encodes a derived sub-address as a bech32m string.</summary>
+        /// <param name="subAddr">Handle from DeriveSubAddress</param>
+        /// <param name="hrp">"tnv" (testnet) or "nav" (mainnet)</param>
+        public static string EncodeAddress(IntPtr subAddr, string hrp)
+        {
+            var retVal = encode_address(subAddr, hrp);
+            try
+            {
+                var strPtr = get_blsct_ret_val_str(retVal);
+                return Marshal.PtrToStringAnsi(strPtr)
+                    ?? throw new InvalidOperationException("encode_address returned null string");
+            }
+            finally { free_obj(retVal); }
+        }
+
+        /// <summary>Decodes a bech32m address string to raw bytes (96 bytes: C‖D).</summary>
+        public static byte[] DecodeAddress(string addr, string hrp)
+        {
+            var retVal = decode_address(addr, hrp);
+            try
+            {
+                // BlsctRetVal contains a byte* data field; extract 96 bytes
+                // (exact field layout: check blsct.h BlsctRetVal struct)
+                // TODO: confirm BlsctRetVal layout and extract bytes
+                throw new NotImplementedException("Verify BlsctRetVal byte extraction");
+            }
+            finally { free_obj(retVal); }
+        }
+
+        /// <summary>Frees a handle returned by the C API.</summary>
+        public static void FreeObj(IntPtr handle) => free_obj(handle);
+    }
+}
+```
+
+> **TODO before finalising:** Verify the `BlsctRetVal` struct layout in `blsct.h` to correctly extract the string and byte data fields. Check how Python/TypeScript bindings read the return value — use the same field accessors pattern.
+
+#### 0b-v. Native library distribution
+
+The `libblsct.so` / `blsct.dll` shared library is built from navio-core. In the Docker deployment, the `naviod` container already has the MCL/blsct shared libraries. NBXplorer's container must have access to them.
+
+**Docker approach:** Copy `libblsct.so` into the NBXplorer container image during the btcpayserver-docker build. Add to `btcpayserver-docker/navio.yml`:
+
+```yaml
+nbxplorer:
+  volumes:
+    - "navio_datadir:/root/.navio"
+    - "/path/to/libblsct.so:/usr/local/lib/libblsct.so:ro"
+  environment:
+    LD_LIBRARY_PATH: /usr/local/lib
+```
+
+Longer term: publish `NavioBlsct` as a NuGet package that includes pre-built native binaries for Linux x64, macOS arm64, Windows x64 (same approach as other native NuGet packages).
+
+#### 0b-vi. PR to upstream
+
+Once tested, open PR from `mxaddict/libblsct-bindings:csharp-support` → `nav-io/libblsct-bindings:main`.
 
 ---
 
@@ -394,73 +551,65 @@ NBXplorer will call `Navio.ConfigureBLSCTOverrides(client)` when initializing th
 
 **Status:** Not yet implemented. This is required for payment address generation to work.
 
+**Prerequisite:** Step 0b (libblsct-bindings C# P/Invoke layer) must be completed first.
+
 **Background:** BLSCT uses a Monero-style sub-address scheme over BLS12-381 instead of Bitcoin's BIP32/xpub. The `getblsctauditkey` RPC returns a 160-char hex string:
 - First 64 chars = view key scalar (32 bytes, Fr field element)
 - Next 96 chars = spending public key (48 bytes, G1 point)
 
-Together these act as the BLSCT equivalent of an xpub: they allow deriving all sub-addresses for a wallet without the private spending key. This is how NBXplorer will generate invoice addresses without a running daemon.
+Together these act as the BLSCT equivalent of an xpub. The C API (`navio-core/src/blsct/external_api/blsct.h`) already implements the full derivation — we call it via P/Invoke rather than reimplementing BLS12-381 math in C#.
 
-**Derivation algorithm** (from `navio-core/src/blsct/wallet/address.cpp:34-58`):
+**Derivation algorithm** (from `navio-core/src/blsct/wallet/address.cpp:34-58`, wrapped by external API):
 
 ```
-Input:  viewKey    (32-byte Fr scalar)
-        spendKey   (48-byte G1 point)
-        account    (int64, normally 0 for receive, -1 for change)
-        index      (uint64, increments per address)
+Input:  viewKey  (32-byte Fr scalar)   — BlsctScalar in C API
+        spendKey (48-byte G1 point)    — BlsctPubKey in C API
+        account  (int64)               — part of BlsctSubAddrId
+        index    (uint64)              — part of BlsctSubAddrId
 
-m = SHA256("SubAddress\0" || viewKey_bytes || account_le8 || index_le8)
-  -- interpreted as Fr scalar (reduced mod order)
+C API call sequence:
+  id   = gen_sub_addr_id(account, index)     → BlsctSubAddrId (16 bytes)
+  addr = derive_sub_address(viewKey, spendKey, id) → BlsctSubAddr (96 bytes: C‖D)
+  str  = encode_address(addr, hrp)           → "tnv1…" bech32m string
 
-M = m × G        -- G1 scalar multiplication with generator
-D = M + spendKey -- G1 point addition
-C = viewKey × D  -- G1 scalar multiplication (view key scalar × D)
-
-output = DoublePublicKey(C, D)  -- 96 bytes: C (48) || D (48)
-address = bech32m(HRP, convert_bits_8_to_5(output))
-  -- HRP: "tnv" (testnet), "nav" (mainnet)
-  -- encoded length: ~165 chars
+HRP: "tnv" (testnet), "nav" (mainnet)
 ```
 
-**C# library:** Use `MCL.BLS12_381.Net` NuGet package — a .NET wrapper around the same MCL library used by navio-core. Supports G1 arithmetic and ETH2.0-style 48-byte point serialization.
+##### 1g-i. Add libblsct-bindings NuGet reference
 
-##### 1g-i. Add dependency to `NBitcoin.Altcoins/NBitcoin.Altcoins.csproj`
+After Step 0b produces a NuGet package (or local project reference during dev):
 
 ```xml
-<PackageReference Include="MCL.BLS12_381.Net" Version="0.0.4" />
+<!-- NBitcoin.Altcoins/NBitcoin.Altcoins.csproj -->
+<PackageReference Include="NavioBlsct" Version="0.1.0" />
+```
+
+During local development, use a project reference to `libblsct-bindings/ffi/csharp/`:
+```xml
+<ProjectReference Include="..\..\libblsct-bindings\ffi\csharp\NavioBlsct.csproj" />
 ```
 
 ##### 1g-ii. Create `NBitcoin.Altcoins/BlsctDerivationStrategy.cs`
 
-This file contains two classes:
-
-**`BlsctAddressDeriver`** — pure derivation math:
-
 ```csharp
 using System;
-using System.Text;
-using System.Security.Cryptography;
 using NBitcoin.DataEncoders;
+using NavioBlsct; // from libblsct-bindings C# layer (Step 0b)
 
 namespace NBitcoin.Altcoins
 {
     /// <summary>
-    /// Client-side BLSCT sub-address derivation.
-    /// Matches navio-core src/blsct/wallet/address.cpp:34-58.
+    /// Client-side BLSCT sub-address derivation via navio-core external C API.
+    /// Calls: gen_sub_addr_id → derive_sub_address → encode_address.
     /// </summary>
     public static class BlsctAddressDeriver
     {
-        private static readonly byte[] SubAddressHeader =
-            Encoding.UTF8.GetBytes("SubAddress\0");
-
-        /// <summary>
-        /// Derives a BLSCT sub-address at (account, index).
-        /// </summary>
-        /// <param name="viewKeyBytes">32-byte Fr scalar (from getblsctauditkey, first 64 hex chars)</param>
-        /// <param name="spendKeyBytes">48-byte G1 point (from getblsctauditkey, next 96 hex chars)</param>
-        /// <param name="account">Account index (0 = receive, -1 = change, -2 = staking)</param>
-        /// <param name="index">Address index (increments per address)</param>
-        /// <param name="hrp">Bech32m HRP ("tnv" for testnet, "nav" for mainnet)</param>
-        /// <returns>Bech32m-encoded BLSCT address (e.g. "tnv1...")</returns>
+        /// <param name="viewKeyBytes">32 bytes (from getblsctauditkey, first 64 hex chars)</param>
+        /// <param name="spendKeyBytes">48 bytes (from getblsctauditkey, next 96 hex chars)</param>
+        /// <param name="account">0 = receive, -1 = change, -2 = staking</param>
+        /// <param name="index">Increments per address</param>
+        /// <param name="hrp">"tnv" (testnet) or "nav" (mainnet)</param>
+        /// <returns>"tnv1…" or "nav1…" bech32m address string</returns>
         public static string Derive(
             byte[] viewKeyBytes,
             byte[] spendKeyBytes,
@@ -468,35 +617,9 @@ namespace NBitcoin.Altcoins
             ulong index,
             string hrp)
         {
-            // 1. Hash: SHA256("SubAddress\0" || viewKey || account_le8 || index_le8)
-            byte[] accountBytes = BitConverter.GetBytes(account);
-            byte[] indexBytes = BitConverter.GetBytes(index);
-            if (!BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(accountBytes);
-                Array.Reverse(indexBytes);
-            }
-
-            byte[] hashInput = new byte[
-                SubAddressHeader.Length + viewKeyBytes.Length + 8 + 8];
-            int pos = 0;
-            SubAddressHeader.CopyTo(hashInput, pos); pos += SubAddressHeader.Length;
-            viewKeyBytes.CopyTo(hashInput, pos);     pos += viewKeyBytes.Length;
-            accountBytes.CopyTo(hashInput, pos);     pos += 8;
-            indexBytes.CopyTo(hashInput, pos);
-
-            byte[] mBytes = SHA256.HashData(hashInput);
-
-            // 2. BLS12-381 G1 operations via MCL.BLS12_381.Net
-            //    M = m × G
-            //    D = M + spendKey
-            //    C = viewKey × D
-            //    (see MCL.BLS12_381.Net API for exact calls)
-            // TODO: fill in MCL API calls when library is confirmed
-
-            // 3. Serialize: C (48 bytes) || D (48 bytes) = 96 bytes total
-            // 4. Convert 8-to-5 bits and bech32m encode with hrp
-            throw new NotImplementedException("BLS G1 operations pending MCL library integration");
+            using var id   = Blsct.GenSubAddrId(account, index);
+            using var addr = Blsct.DeriveSubAddress(viewKeyBytes, spendKeyBytes, id);
+            return Blsct.EncodeAddress(addr, hrp);
         }
     }
 
@@ -505,49 +628,38 @@ namespace NBitcoin.Altcoins
     /// String format: "blsct:VIEW_KEY_HEX:SPEND_KEY_HEX"
     ///   VIEW_KEY_HEX  = 64 hex chars (32 bytes, Fr scalar)
     ///   SPEND_KEY_HEX = 96 hex chars (48 bytes, G1 point)
-    /// Obtained by running: navio-cli getblsctauditkey
-    /// (concatenate the two fields returned)
+    /// Obtained by: navio-cli getblsctauditkey
     /// </summary>
     public class BlsctDerivationStrategy : DerivationStrategyBase
     {
         public const string Prefix = "blsct:";
+        public const long ChangeAccount  = -1;
+        public const long StakingAccount = -2;
 
-        public byte[] ViewKey { get; }   // 32 bytes
-        public byte[] SpendKey { get; }  // 48 bytes
+        public byte[] ViewKey  { get; } // 32 bytes
+        public byte[] SpendKey { get; } // 48 bytes
 
         public BlsctDerivationStrategy(byte[] viewKey, byte[] spendKey)
             : base(null)
         {
-            if (viewKey.Length != 32)
-                throw new ArgumentException("View key must be 32 bytes", nameof(viewKey));
-            if (spendKey.Length != 48)
-                throw new ArgumentException("Spend key must be 48 bytes", nameof(spendKey));
-            ViewKey = viewKey;
+            if (viewKey.Length  != 32) throw new ArgumentException("View key must be 32 bytes");
+            if (spendKey.Length != 48) throw new ArgumentException("Spend key must be 48 bytes");
+            ViewKey  = viewKey;
             SpendKey = spendKey;
         }
 
-        /// <summary>
-        /// Parse from "blsct:VIEW_HEX:SPEND_HEX" string.
-        /// </summary>
         public static BlsctDerivationStrategy Parse(string s)
         {
-            if (!s.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
-                return null;
+            if (!s.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return null;
             var parts = s.Substring(Prefix.Length).Split(':');
-            if (parts.Length != 2 || parts[0].Length != 64 || parts[1].Length != 96)
-                return null;
-            var viewKey = Encoders.Hex.DecodeData(parts[0]);
-            var spendKey = Encoders.Hex.DecodeData(parts[1]);
-            return new BlsctDerivationStrategy(viewKey, spendKey);
+            if (parts.Length != 2 || parts[0].Length != 64 || parts[1].Length != 96) return null;
+            return new BlsctDerivationStrategy(
+                Encoders.Hex.DecodeData(parts[0]),
+                Encoders.Hex.DecodeData(parts[1]));
         }
 
-        public override string ToString()
-        {
-            return Prefix
-                + Encoders.Hex.EncodeData(ViewKey)
-                + ":"
-                + Encoders.Hex.EncodeData(SpendKey);
-        }
+        public override string ToString() =>
+            Prefix + Encoders.Hex.EncodeData(ViewKey) + ":" + Encoders.Hex.EncodeData(SpendKey);
 
         public override DerivationStrategyBase GetChild(int i) => this;
         public override Derivation Derive(uint index) =>
@@ -557,7 +669,7 @@ namespace NBitcoin.Altcoins
 }
 ```
 
-> **Note:** `DerivationStrategyBase.Derive(uint index)` is intentionally not supported — BLSCT derivation takes `(account, index)` not a flat uint. NBXplorer's `GenerateAddressesCore` will detect `BlsctDerivationStrategy` and call `BlsctAddressDeriver.Derive()` directly.
+> **Note:** `DerivationStrategyBase.Derive(uint index)` is intentionally not supported — BLSCT derivation takes `(account, index)` not a flat uint. NBXplorer's `GenerateAddressesCore` detects `BlsctDerivationStrategy` and calls `BlsctAddressDeriver.Derive()` directly.
 
 ---
 
@@ -1141,6 +1253,13 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 
 ## Testing Checklist
 
+### libblsct-bindings C# layer
+- [ ] `Blsct.GenSubAddrId(account, index)` returns valid handle
+- [ ] `Blsct.DeriveSubAddress(viewKey, spendKey, id)` produces correct 96-byte sub-address
+- [ ] `Blsct.EncodeAddress(subAddr, "tnv")` produces correct `tnv1…` string matching daemon output
+- [ ] `Blsct.DecodeAddress("tnv1…", "tnv")` round-trips correctly
+- [ ] Native library loads on Linux x64 (Docker target platform)
+
 ### Foundation
 - [ ] NBitcoin: Navio testnet network parses BLSCT `tnv` addresses correctly
 - [ ] NBitcoin: RPC method remapping works (`getbalance` → `getblsctbalance`, etc.)
@@ -1183,10 +1302,11 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 
 PRs depend on each other. Submit upstream in this order once code is ready for review:
 
-1. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition + RPC method remapping mechanism + BLSCT RPC operations + `CreateWalletOptions.Blsct`
-2. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration + BLSCT RPC overrides + skip descriptor import + BLSCT UTXO scanning + BLSCT tx creation + RPC whitelist (depends on #1 being merged/released as NuGet)
-3. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin + BLSCT wallet generation considerations (depends on #2)
-4. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment + `navio-cli.sh` (independent, can go in parallel)
+1. **libblsct-bindings** → `mxaddict/libblsct-bindings:csharp-support` → PR to `nav-io/libblsct-bindings:main` — C# P/Invoke layer for address derivation (independent, no upstream deps)
+2. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition + RPC method remapping + BLSCT RPC operations + `CreateWalletOptions.Blsct` + `BlsctDerivationStrategy` (depends on #1 being merged/published as NuGet)
+3. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration + BLSCT RPC overrides + skip descriptor import + BLSCT UTXO scanning + `GenerateBlsctAddressesCore` + BLSCT tx creation + RPC whitelist (depends on #2)
+4. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin + audit key wallet setup (depends on #3)
+5. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment + `navio-cli.sh` + libblsct.so volume mount (independent, can go in parallel with #2-4)
 
 ## Future Work (Mainnet)
 
