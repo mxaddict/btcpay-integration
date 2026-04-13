@@ -835,16 +835,14 @@ Binaries appear in `./src/`.
 
 ## PR Submission Order
 
-> **PRs already open.** All four draft PRs have been submitted. See [PRs.md](PRs.md) for links and current status.
+> **Draft PRs open within mxaddict forks.** See [PRs.md](PRs.md) for links. These are tracking PRs in the `mxaddict/*` repos — upstream PRs to `MetacoSA/NBitcoin`, `dgarage/NBXplorer`, etc. have **not** been opened yet.
 
-PRs depend on each other. Merge in this order:
+PRs depend on each other. Submit upstream in this order once code is ready for review:
 
 1. **NBitcoin** → `mxaddict/NBitcoin:navio-support` → PR to `MetacoSA/NBitcoin:master` — Navio network definition + RPC method remapping mechanism + BLSCT RPC operations + `CreateWalletOptions.Blsct`
 2. **NBXplorer** → `mxaddict/NBXplorer:navio-support` → PR to `dgarage/NBXplorer:master` — Chain registration + BLSCT RPC overrides + skip descriptor import + BLSCT UTXO scanning + BLSCT tx creation + RPC whitelist (depends on #1 being merged/released as NuGet)
 3. **BTCPayServer** → `mxaddict/btcpayserver:navio-support` → PR to `btcpayserver/btcpayserver:master` — Altcoins plugin + BLSCT wallet generation considerations (depends on #2)
 4. **btcpayserver-docker** → `mxaddict/btcpayserver-docker:navio-support` → PR to `btcpayserver/btcpayserver-docker:master` — Docker deployment + `navio-cli.sh` (independent, can go in parallel)
-
-**Do NOT mark PRs as ready for review.** The maintainer (mxaddict) will do that manually.
 
 ## Future Work (Mainnet)
 
