@@ -12,4 +12,7 @@
 	url = git@github.com:mxaddict/NBitcoin.git
 [submodule "navio-core"]
 	path = navio-core
-	url = git@github.com:nav-io/navio-core.git
+	url = git@github.com:mxaddict/navio-core.git
+[submodule "libblsct-bindings"]
+	path = libblsct-bindings
+	url = git@github.com:mxaddict/libblsct-bindings.git
