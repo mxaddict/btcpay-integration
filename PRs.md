@@ -2,12 +2,13 @@
 
 ## Pull Requests
 
-| # | Repository | PR Link | Status |
-|---|------------|---------|--------|
-| 1 | mxaddict/NBitcoin | https://github.com/mxaddict/NBitcoin/pull/1 | Draft |
-| 2 | mxaddict/NBXplorer | https://github.com/mxaddict/NBXplorer/pull/1 | Draft |
-| 3 | mxaddict/btcpayserver | https://github.com/mxaddict/btcpayserver/pull/1 | Draft |
-| 4 | mxaddict/btcpayserver-docker | https://github.com/mxaddict/btcpayserver-docker/pull/1 | Draft |
+| #   | Repository                   | PR Link                                                  | Status |
+| --- | ---------------------------- | -------------------------------------------------------- | ------ |
+| 0   | nav-io/libblsct-bindings     | <https://github.com/nav-io/libblsct-bindings/pull/231>   | Open   |
+| 1   | mxaddict/NBitcoin            | <https://github.com/mxaddict/NBitcoin/pull/1>            | Draft  |
+| 2   | mxaddict/NBXplorer           | <https://github.com/mxaddict/NBXplorer/pull/1>           | Draft  |
+| 3   | mxaddict/btcpayserver        | <https://github.com/mxaddict/btcpayserver/pull/1>        | Draft  |
+| 4   | mxaddict/btcpayserver-docker | <https://github.com/mxaddict/btcpayserver-docker/pull/1> | Draft  |
 
 ## Submission Order
 
@@ -18,4 +19,4 @@
 
 ## Integration Repo
 
-https://github.com/mxaddict/btcpay-integration
+<https://github.com/mxaddict/btcpay-integration>
