@@ -799,6 +799,47 @@ make -j$(nproc)
 
 Binaries appear in `./src/`.
 
+## Local Build Setup (Development)
+
+The submodules form a dependency chain. To build locally against the fork changes, use **local project references** rather than NuGet packages for the repos you've changed.
+
+### NBitcoin.Altcoins — builds standalone
+```bash
+cd NBitcoin
+dotnet build NBitcoin.Altcoins/NBitcoin.Altcoins.csproj
+```
+
+### NBXplorer — switch to local NBitcoin project refs
+
+`NBXplorer.Client/NBXplorer.Client.csproj` must reference local NBitcoin instead of NuGet:
+
+```xml
+<!-- Replace PackageReference for NBitcoin and NBitcoin.Altcoins with: -->
+<ProjectReference Include="..\..\NBitcoin\NBitcoin\NBitcoin.csproj" />
+<ProjectReference Include="..\..\NBitcoin\NBitcoin.Altcoins\NBitcoin.Altcoins.csproj" />
+```
+
+Then build:
+```bash
+cd NBXplorer
+dotnet build NBXplorer/NBXplorer.csproj -p:AllowMissingPrunePackageData=true
+```
+
+> **Note:** Revert `NBXplorer.Client.csproj` back to `PackageReference` before submitting the upstream PR. The PR must reference the published NuGet versions, not local paths.
+
+### BTCPayServer — builds against published NuGet packages
+
+BTCPayServer targets NBitcoin 9.0.5 (NuGet). Our forks use NBitcoin 10.0.1. Direct project reference substitution causes version conflicts. BTCPayServer builds fine with upstream NuGet packages because:
+- `AltcoinsPlugin.Navio.cs` uses `GetFromCryptoCode("NAV")` which exists in published NBXplorer.Client
+- The `GetNAV()` helper in our NBXplorer fork is only needed for NBXplorer-internal use
+
+```bash
+cd btcpayserver
+dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=true
+```
+
+> **Upstream PR dependency:** BTCPayServer's PR can only be fully validated end-to-end once NBitcoin and NBXplorer PRs are merged and published to NuGet. The compile check above only verifies BTCPayServer's Navio code compiles against the existing published NBXplorer.Client.
+
 ## Testing Checklist
 
 ### Foundation
