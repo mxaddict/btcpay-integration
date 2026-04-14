@@ -707,6 +707,588 @@ dotnet build BTCPayServer/BTCPayServer.csproj -p:AllowMissingPrunePackageData=tr
 - [ ] Docker: NBXplorer connects to naviod and indexes chain
 - [ ] Docker: `navio-cli.sh` wrapper works correctly
 
+## Unit & Integration Test Plan
+
+These tests need to be written. Each section lists: test file (which already has
+a corresponding `.csproj`), required usings, and specific test cases. Tests are
+grouped by what they can run without — pure unit tests first, then tests
+requiring `libblsct.so`, then tests requiring a live daemon.
+
+**Key implementation notes:**
+
+- `BlsctDerivationStrategy.Parse()` returns `null` on failure — it does NOT
+  throw. All invalid-input tests must assert `Assert.Null(result)`.
+- `BlsctDerivationStrategyFactory.Parse()` uses `new` (not `override`). Declare
+  the factory variable as `BlsctDerivationStrategyFactory`, not the base class,
+  so the correct overload is called.
+- `Navio.ConfigureBLSCTOverrides(client)` is a `static` method on
+  `NBitcoin.Altcoins.Navio`. It sets `client.RPCMethodOverrides`
+  (`Dictionary<string, string>`) in-place. A dummy `RPCClient` (fake URI,
+  no live connection) is sufficient to test the dictionary contents.
+- `UIStoresController.ParseDerivationStrategy` is `internal static` in
+  `BTCPayServer`. It is accessible from `BTCPayServer.Tests` because
+  `[assembly: InternalsVisibleTo("BTCPayServer.Tests")]` is already declared
+  in `BTCPayServer/Program.cs`.
+- Test vectors cannot be static hex strings derived from `keyman_tests.cpp`
+  because that file does not exist. The C++ external API tests
+  (`navio-core/src/test/blsct/external_api/external_api_tests.cpp`) use
+  `gen_scalar(11)` and `gen_scalar(12)` as view and spend keys — deterministic
+  but only computable by running the native library. **Approach:** write a
+  one-time fixture generator (see Test Vectors section) that runs against the
+  built `libblsct.so`, captures outputs, and stores them as JSON. Tests then
+  load that JSON. Round-trip and differentiation tests do not need pre-computed
+  vectors.
+
+---
+
+### NBitcoin — Unit Tests
+
+**File:** `NBitcoin/NBitcoin.Tests/NavioTests.cs`  
+**Framework:** xUnit (project: `NBitcoin/NBitcoin.Tests/NBitcoin.Tests.csproj`)
+
+```csharp
+// Required usings:
+using NBitcoin;
+using NBitcoin.Altcoins;
+using NBitcoin.DataEncoders;
+using NBitcoin.RPC;
+using System.Collections.Generic;
+using Xunit;
+```
+
+#### Navio Network Definition
+
+```csharp
+[Fact]
+NavioNetwork_Testnet_HasCorrectGenesisHash()
+// var network = AltNetworkSets.Navio.Testnet;  // NBitcoin.Altcoins.AltNetworkSets
+// Assert.Equal(
+//   uint256.Parse("57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b"),
+//   network.GetGenesis().GetHash());
+
+[Fact]
+NavioNetwork_Testnet_HasCorrectPorts()
+// var network = AltNetworkSets.Navio.Testnet;
+// Assert.Equal(33570, network.DefaultPort);
+// Assert.Equal(33577, network.RPCPort);
+
+[Fact]
+NavioNetwork_Testnet_HasCorrectBlsctBech32HRP()
+// var network = AltNetworkSets.Navio.Testnet;
+// Find the Bech32Encoder for the BLSCT HRP "tnv" among network.Bech32Encoders
+// Assert it exists and its HRP == "tnv"
+
+[Fact]
+NavioNetwork_Testnet_HasCorrectBase58Prefixes()
+// var network = AltNetworkSets.Navio.Testnet;
+// Assert.Equal(0x6f, network.GetVersionBytes(Base58Type.PUBKEY_ADDRESS, false)[0]);
+// Assert.Equal(0xc4, network.GetVersionBytes(Base58Type.SCRIPT_ADDRESS, false)[0]);
+
+[Fact]
+NavioNetwork_RegisteredInAltNetworkSets()
+// Assert.NotNull(AltNetworkSets.Navio);
+// Assert.Contains(AltNetworkSets.Navio, AltNetworkSets.GetAll());
+```
+
+#### RPC Method Remapping
+
+```csharp
+// Helper: create a dummy RPCClient (no live connection needed)
+// var client = new RPCClient(
+//     new RPCCredentialString { UserPassword = new NetworkCredential("u","p") },
+//     new Uri("http://127.0.0.1:33577/"),
+//     AltNetworkSets.Navio.Testnet);
+
+[Fact]
+ConfigureBLSCTOverrides_SetsRPCMethodOverridesDictionary()
+// NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+// Assert.NotNull(client.RPCMethodOverrides);
+// Assert.IsType<Dictionary<string, string>>(client.RPCMethodOverrides);
+
+[Fact]
+ConfigureBLSCTOverrides_RemapsAllEightMethods()
+// NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+// var m = client.RPCMethodOverrides;
+// Assert.Equal("getblsctbalance",           m["getbalance"]);
+// Assert.Equal("sendtoblsctaddress",        m["sendtoaddress"]);
+// Assert.Equal("listblsctunspent",          m["listunspent"]);
+// Assert.Equal("listblscttransactions",     m["listtransactions"]);
+// Assert.Equal("createblsctrawtransaction", m["createrawtransaction"]);
+// Assert.Equal("fundblsctrawtransaction",   m["fundrawtransaction"]);
+// Assert.Equal("signblsctrawtransaction",   m["signrawtransactionwithwallet"]);
+// Assert.Equal("decodeblsctrawtransaction", m["decoderawtransaction"]);
+
+[Fact]
+ConfigureBLSCTOverrides_DoesNotRemapCreatewallet()
+// NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+// Assert.False(client.RPCMethodOverrides.ContainsKey("createwallet"));
+
+[Fact]
+ConfigureBLSCTOverrides_DoesNotRemapGetnewaddress()
+// NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+// Assert.False(client.RPCMethodOverrides.ContainsKey("getnewaddress"));
+
+[Fact]
+ConfigureBLSCTOverrides_ExactlyEightMappings()
+// NBitcoin.Altcoins.Navio.ConfigureBLSCTOverrides(client);
+// Assert.Equal(8, client.RPCMethodOverrides.Count);
+```
+
+#### CreateWalletOptions.Blsct
+
+```csharp
+// Required using: using NBitcoin.RPC;
+
+[Fact]
+CreateWalletOptions_BlsctProperty_DefaultsToNull()
+// Assert.Null(new CreateWalletOptions().Blsct);
+
+[Fact]
+CreateWalletOptions_BlsctTrue_IncludedInSerialization()
+// Serialize CreateWalletOptions { Blsct = true } via NBitcoin's JSON serializer
+// Assert JSON contains the key "blsct" with value true
+// (Inspect RPCClient.CreateWalletAsync source for serialization path)
+
+[Fact]
+CreateWalletOptions_BlsctNull_OmittedFromSerialization()
+// Serialize CreateWalletOptions { Blsct = null }
+// Assert JSON does NOT contain "blsct" key
+```
+
+#### BLSCT RPCOperations Enum
+
+```csharp
+// Required using: using NBitcoin.RPC;
+
+[Theory]
+[InlineData(RPCOperations.getblsctbalance,           "getblsctbalance")]
+[InlineData(RPCOperations.sendtoblsctaddress,        "sendtoblsctaddress")]
+[InlineData(RPCOperations.listblsctunspent,          "listblsctunspent")]
+[InlineData(RPCOperations.listblscttransactions,     "listblscttransactions")]
+[InlineData(RPCOperations.createblsctrawtransaction, "createblsctrawtransaction")]
+[InlineData(RPCOperations.fundblsctrawtransaction,   "fundblsctrawtransaction")]
+[InlineData(RPCOperations.signblsctrawtransaction,   "signblsctrawtransaction")]
+[InlineData(RPCOperations.decodeblsctrawtransaction, "decodeblsctrawtransaction")]
+[InlineData(RPCOperations.setblsctseed,              "setblsctseed")]
+[InlineData(RPCOperations.getblsctseed,              "getblsctseed")]
+[InlineData(RPCOperations.getblsctauditkey,          "getblsctauditkey")]
+[InlineData(RPCOperations.createblsctbalanceproof,   "createblsctbalanceproof")]
+[InlineData(RPCOperations.unlockblsctoutpoint,       "unlockblsctoutpoint")]
+[InlineData(RPCOperations.getblsctrecoverydata,      "getblsctrecoverydata")]
+[InlineData(RPCOperations.generatetoblsctaddress,    "generatetoblsctaddress")]
+RPCOperations_BlsctEnums_HaveCorrectStringValues(RPCOperations op, string expected)
+// Assert.Equal(expected, op.ToString());
+```
+
+---
+
+### NBXplorer — Unit Tests
+
+**File:** `NBXplorer/NBXplorer.Tests/NavioTests.cs`  
+**Framework:** xUnit (project: `NBXplorer/NBXplorer.Tests/NBXplorer.Tests.csproj`)
+
+```csharp
+// Required usings:
+using NBitcoin;
+using NBitcoin.Altcoins;
+using NBXplorer;
+using NBXplorer.DerivationStrategy;
+using Xunit;
+```
+
+#### BlsctDerivationStrategy — Parse and Round-trip
+
+> **Important:** `BlsctDerivationStrategy.Parse()` returns `null` on invalid
+> input — it does NOT throw. Use `Assert.Null(result)` for failure cases.
+
+```csharp
+// Test constants (put in a shared helper):
+// const string ValidView  = new string('a', 64);  // 64 hex chars = 32 bytes
+// const string ValidSpend = new string('b', 96);  // 96 hex chars = 48 bytes
+// const string ValidStr   = $"blsct:{ValidView}:{ValidSpend}";
+
+[Fact]
+BlsctDerivationStrategy_Parse_ValidString_ReturnsStrategy()
+// var s = BlsctDerivationStrategy.Parse(ValidStr);
+// Assert.NotNull(s);
+// Assert.Equal(Encoders.Hex.DecodeData(ValidView),  s.ViewKey);
+// Assert.Equal(Encoders.Hex.DecodeData(ValidSpend), s.SpendKey);
+
+[Fact]
+BlsctDerivationStrategy_Parse_MissingPrefix_ReturnsNull()
+// Assert.Null(BlsctDerivationStrategy.Parse($"{ValidView}:{ValidSpend}"));
+
+[Fact]
+BlsctDerivationStrategy_Parse_WrongViewKeyLength_ReturnsNull()
+// Assert.Null(BlsctDerivationStrategy.Parse($"blsct:{new string('a', 62)}:{ValidSpend}"));
+
+[Fact]
+BlsctDerivationStrategy_Parse_WrongSpendKeyLength_ReturnsNull()
+// Assert.Null(BlsctDerivationStrategy.Parse($"blsct:{ValidView}:{new string('b', 94)}"));
+
+[Fact]
+BlsctDerivationStrategy_Parse_NonHexViewKey_ReturnsNull()
+// Assert.Null(BlsctDerivationStrategy.Parse($"blsct:{new string('Z', 64)}:{ValidSpend}"));
+
+[Fact]
+BlsctDerivationStrategy_Parse_NullInput_ReturnsNull()
+// Assert.Null(BlsctDerivationStrategy.Parse(null));
+
+[Fact]
+BlsctDerivationStrategy_ToString_RoundTrips()
+// var s = BlsctDerivationStrategy.Parse(ValidStr);
+// Assert.Equal(ValidStr, s.ToString());  // exact case preservation
+
+[Fact]
+BlsctDerivationStrategy_ToString_Parse_RoundTrip()
+// var s1 = BlsctDerivationStrategy.Parse(ValidStr);
+// var s2 = BlsctDerivationStrategy.Parse(s1.ToString());
+// Assert.Equal(s1.ViewKey,  s2.ViewKey);
+// Assert.Equal(s1.SpendKey, s2.SpendKey);
+```
+
+#### BlsctDerivationStrategyFactory
+
+> **Important:** `BlsctDerivationStrategyFactory.Parse()` uses `new`, not
+> `override`. Declare factory as `BlsctDerivationStrategyFactory` (not the
+> base `DerivationStrategyFactory`) so the correct overload resolves.
+
+```csharp
+[Fact]
+BlsctDerivationStrategyFactory_Parse_BlsctString_ReturnsBlsctStrategy()
+// var factory = new BlsctDerivationStrategyFactory(AltNetworkSets.Navio.Testnet);
+// var result = factory.Parse(ValidStr);
+// Assert.IsType<BlsctDerivationStrategy>(result);
+
+[Fact]
+BlsctDerivationStrategyFactory_Parse_BlsctString_KeysMatchInput()
+// var factory = new BlsctDerivationStrategyFactory(AltNetworkSets.Navio.Testnet);
+// var result = (BlsctDerivationStrategy)factory.Parse(ValidStr);
+// Assert.Equal(Encoders.Hex.DecodeData(ValidView),  result.ViewKey);
+// Assert.Equal(Encoders.Hex.DecodeData(ValidSpend), result.SpendKey);
+
+[Fact]
+BlsctDerivationStrategyFactory_Parse_NonBlsctString_FallsBackToBase()
+// var factory = new BlsctDerivationStrategyFactory(AltNetworkSets.Navio.Testnet);
+// var result = factory.Parse("xpub...");  // use a real xpub for testnet
+// Assert.IsNotType<BlsctDerivationStrategy>(result);
+```
+
+#### NavioNBXplorerNetwork
+
+```csharp
+// Required using: using NBXplorer.Models;  // for NetworkType
+
+[Fact]
+NavioNBXplorerNetwork_Testnet_HasCorrectCryptoCode()
+// var provider = new NBXplorerNetworkProvider(NetworkType.Testnet);
+// Assert.Equal("NAV", provider.GetFromCryptoCode("NAV").CryptoCode);
+
+[Fact]
+NavioNBXplorerNetwork_Testnet_HasCorrectMinRPCVersion()
+// var network = new NBXplorerNetworkProvider(NetworkType.Testnet).GetFromCryptoCode("NAV");
+// Assert.Equal(220000, network.MinRPCVersion);
+
+[Fact]
+NavioNBXplorerNetwork_Testnet_CreateStrategyFactory_ReturnsBlsctFactory()
+// var network = new NBXplorerNetworkProvider(NetworkType.Testnet).GetFromCryptoCode("NAV");
+// Assert.IsType<BlsctDerivationStrategyFactory>(network.DerivationStrategyFactory);
+
+[Fact]
+NavioNBXplorerNetwork_Mainnet_CoinTypeIs0()
+// var network = new NBXplorerNetworkProvider(NetworkType.Mainnet).GetFromCryptoCode("NAV");
+// Assert.Equal(0u, network.CoinType);
+
+[Fact]
+NavioNBXplorerNetwork_Testnet_CoinTypeIs1()
+// var network = new NBXplorerNetworkProvider(NetworkType.Testnet).GetFromCryptoCode("NAV");
+// Assert.Equal(1u, network.CoinType);
+```
+
+---
+
+### NBXplorer — Integration Tests (require `libblsct.so`)
+
+**File:** `NBXplorer/NBXplorer.Tests/BlsctDerivationTests.cs`  
+**Framework:** xUnit  
+**Skip guard:** Check `File.Exists(Environment.GetEnvironmentVariable("LIBBLSCT_SO_PATH") ?? "")`
+at the start of each test; skip via `Skip.If(...)` (using the xunit.v3.skip
+package) or `[Fact(Skip = "requires libblsct.so")]` when the env var is absent.
+
+The method under test is the static method on `BlsctDerivationStrategy`:
+```csharp
+// BlsctDerivationStrategy.DeriveBlsctAddress(
+//     byte[] viewKey, byte[] spendKey, long account, ulong index, string hrp)
+// → string  (bech32m-encoded address)
+```
+
+```csharp
+[Fact]
+DeriveBlsctAddress_IsDeterministic()
+// Same inputs twice → same output
+// var addr1 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// var addr2 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// Assert.Equal(addr1, addr2);
+// (Use any 32-byte viewKey and 48-byte spendKey — random bytes are fine here)
+
+[Fact]
+DeriveBlsctAddress_Testnet_StartsWithTnv1()
+// var addr = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// Assert.StartsWith("tnv1", addr);
+
+[Fact]
+DeriveBlsctAddress_Mainnet_StartsWithNav1()
+// var addr = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "nav");
+// Assert.StartsWith("nav1", addr);
+
+[Fact]
+DeriveBlsctAddress_DifferentAccount_ProducesDifferentAddress()
+// var a0 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// var a1 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 1, 0, "tnv");
+// Assert.NotEqual(a0, a1);
+
+[Fact]
+DeriveBlsctAddress_DifferentIndex_ProducesDifferentAddress()
+// var a0 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// var a1 = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 1, "tnv");
+// Assert.NotEqual(a0, a1);
+
+[Fact]
+DeriveBlsctAddress_ChangeAccount_NegativeOne_Differs()
+// long changeAccount = BlsctDerivationStrategy.ChangeAccount;  // = -1
+// var receive = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, 0, 0, "tnv");
+// var change  = BlsctDerivationStrategy.DeriveBlsctAddress(viewKey, spendKey, changeAccount, 0, "tnv");
+// Assert.NotEqual(receive, change);
+
+[Fact]
+DeriveBlsctAddress_MatchesFixture()
+// Load blsct_vectors.json (generated by fixture tool — see Test Vectors section)
+// For each vector: Assert.Equal(vector.ExpectedAddress,
+//   BlsctDerivationStrategy.DeriveBlsctAddress(
+//     Encoders.Hex.DecodeData(vector.ViewKey),
+//     Encoders.Hex.DecodeData(vector.SpendKey),
+//     vector.Account, (ulong)vector.Index, vector.Hrp));
+```
+
+---
+
+### NBXplorer — Integration Tests (require live Navio daemon)
+
+**File:** `NBXplorer/NBXplorer.Tests/NavioDaemonTests.cs`  
+**Framework:** xUnit  
+**Skip guard:** Custom `NavioDaemonFactAttribute` — skips unless env vars
+`NBXPLORER_NAVTESTNET_RPCURL`, `NBXPLORER_NAVTESTNET_RPCUSER`,
+`NBXPLORER_NAVTESTNET_RPCPASSWORD` are all set.
+
+```csharp
+[NavioDaemonFact]
+EnsureWalletCreated_ForNavio_CreatesBlsctWallet()
+// Build RPCClient from env vars with Navio.ConfigureBLSCTOverrides applied
+// Call EnsureWalletCreated (or createwallet with Blsct=true directly)
+// Call getwalletinfo → Assert result["blsct"].Value<bool>() == true
+
+[NavioDaemonFact]
+GetBalance_RoutesTo_Getblsctbalance()
+// After wallet creation, call client.SendCommand("getbalance")
+// Assert: no RPCException (confirms remapping routes to getblsctbalance)
+
+[NavioDaemonFact]
+Listunspent_RoutesTo_Listblsctunspent()
+// client.SendCommand("listunspent")
+// Assert: result is JArray (may be empty), no RPCException
+
+[NavioDaemonFact]
+NavioChain_IndexesBlocks()
+// Start NBXplorer with Navio testnet config
+// Poll GetStatusAsync() until Navio chain Height > 0 (timeout 30s)
+// Assert: status.ChainHeight > 0
+```
+
+---
+
+### BTCPayServer — Unit Tests
+
+**File:** `btcpayserver/BTCPayServer.Tests/NavioPluginTests.cs`  
+**Framework:** xUnit (project: `btcpayserver/BTCPayServer.Tests/BTCPayServer.Tests.csproj`)
+
+```csharp
+// Required usings:
+using BTCPayServer;
+using BTCPayServer.Controllers;
+using BTCPayServer.Models.StoreViewModels;
+using Xunit;
+```
+
+#### IsBLSCT Property
+
+```csharp
+// Resolve BTCPayNetwork via BTCPayNetworkProvider (use DI or instantiate directly)
+
+[Fact]
+NavioBTCPayNetwork_IsBLSCT_IsTrue()
+// var provider = CreateTestNetworkProvider();  // helper that registers Navio
+// var network = provider.GetNetwork<BTCPayNetwork>("NAV");
+// Assert.True(network.IsBLSCT);
+
+[Fact]
+BitcoinBTCPayNetwork_IsBLSCT_IsFalse()
+// Assert.False(provider.GetNetwork<BTCPayNetwork>("BTC").IsBLSCT);
+
+[Fact]
+DerivationSchemeViewModel_IsBLSCT_DefaultsFalse()
+// Assert.False(new DerivationSchemeViewModel().IsBLSCT);
+```
+
+#### UIStoresController — Audit Key Parsing
+
+> `ParseDerivationStrategy` is `internal static` in `UIStoresController`.
+> Accessible from `BTCPayServer.Tests` via `InternalsVisibleTo` already set
+> in `BTCPayServer/Program.cs`. Call as:
+> `UIStoresController.ParseDerivationStrategy(input, navioNetwork)`
+
+```csharp
+[Fact]
+ParseDerivationStrategy_RawAuditKey_160HexChars_ConvertsToBlsctFormat()
+// string viewHex  = new string('a', 64);
+// string spendHex = new string('b', 96);
+// string raw = viewHex + spendHex;  // 160 chars
+// var result = UIStoresController.ParseDerivationStrategy(raw, navioNetwork);
+// Assert.Equal($"blsct:{viewHex}:{spendHex}", result.AccountDerivation.ToString());
+
+[Fact]
+ParseDerivationStrategy_AlreadyBlsctFormat_PassesThrough()
+// string input = $"blsct:{new string('a', 64)}:{new string('b', 96)}";
+// var result = UIStoresController.ParseDerivationStrategy(input, navioNetwork);
+// Assert.Equal(input, result.AccountDerivation.ToString());
+
+[Fact]
+ParseDerivationStrategy_WrongLength_IsHandled()
+// 100-char hex is neither 160 chars nor "blsct:..." format
+// Assert an appropriate error or null result — check what the controller
+// returns for non-BLSCT-format input on a BLSCT network
+
+[Fact]
+SetupWallet_ForNavio_SetsIsBLSCT_True()
+// Use TestServer / WebApplicationFactory to call GET /stores/{id}/onchain/NAV
+// Assert: viewModel.IsBLSCT == true in the rendered SetupWallet view model
+
+[Fact]
+ImportWallet_ForNavio_SetsIsBLSCT_True()
+// GET /stores/{id}/onchain/NAV/import
+// Assert: viewModel.IsBLSCT == true
+```
+
+---
+
+### libblsct-bindings — Integration Tests (require `libblsct.so`)
+
+**File:** `libblsct-bindings/ffi/csharp/tests/BlsctIntegrationTests.cs`  
+**Framework:** xUnit (project already exists alongside `BlsctTests.cs`)  
+**Skip guard:** Same `LIBBLSCT_SO_PATH` env var pattern as NBXplorer tests above.
+
+```csharp
+// Required usings: using NavioBlsct; using Xunit;
+
+[Fact]
+GenSubAddrId_ReturnsNonZeroHandle()
+// var handle = Blsct.GenSubAddrId(0, 0);
+// Assert.NotEqual(IntPtr.Zero, handle);
+// Blsct.FreeObj(handle);
+
+[Fact]
+DeriveSubAddress_ValidKeys_ReturnsNonZeroHandle()
+// (Use random 32-byte viewKey, 48-byte spendKey — sizes matter, values don't
+//  for this test since we're checking the call doesn't crash / returns non-null)
+// var id   = Blsct.GenSubAddrId(0, 0);
+// var addr = Blsct.DeriveSubAddress(viewKey, spendKey, id);
+// Assert.NotEqual(IntPtr.Zero, addr);
+// Blsct.FreeObj(addr); Blsct.FreeObj(id);
+
+[Fact]
+EncodeAddress_Testnet_StartsWithTnv1()
+// Derive sub-address then encode with hrp = "tnv"
+// Assert.StartsWith("tnv1", encoded);
+
+[Fact]
+EncodeAddress_Mainnet_StartsWithNav1()
+// Encode with hrp = "nav"
+// Assert.StartsWith("nav1", encoded);
+
+[Fact]
+DecodeAddress_RoundTrips()
+// encode then decode — decoded bytes must equal the original sub-address bytes
+
+[Fact]
+FullPipeline_MatchesFixture()
+// Load blsct_vectors.json (same file used by NBXplorer integration tests)
+// For each vector: encode via C# P/Invoke → Assert.Equal(vector.ExpectedAddress)
+```
+
+---
+
+### Test Vectors
+
+`keyman_tests.cpp` does not exist in navio-core. The C++ test reference is
+`navio-core/src/test/blsct/external_api/external_api_tests.cpp`, which uses
+`gen_scalar(11)` (view) and `gen_scalar(12)` (spend) — deterministic from
+integer seeds but only computable by running the native library.
+
+**Approach — fixture generator script:**
+
+Write a small C# console app (or xUnit fixture class) that:
+1. Calls `BlsctDerivationStrategy.DeriveBlsctAddress` for the test inputs below
+2. Writes results to JSON
+
+Run once after building `libblsct.so`, commit the JSON output.
+
+```csharp
+// Inputs to generate vectors for:
+// viewKey  = bytes from gen_scalar(11) — run external_api_tests to get hex, OR
+//            use a known 32-byte seed: 0x0b repeated 32 times as a starting point
+// spendKey = bytes from gen_scalar(12) — OR 0x0c repeated 48 times
+// Derive: (account=0, index=0, hrp="tnv")
+//         (account=0, index=1, hrp="tnv")
+//         (account=-1, index=0, hrp="tnv")  // change address
+//         (account=0, index=0, hrp="nav")   // mainnet
+```
+
+Store JSON at:
+- `NBXplorer/NBXplorer.Tests/TestData/blsct_vectors.json`
+- `libblsct-bindings/ffi/csharp/tests/TestData/blsct_vectors.json`
+
+```json
+[
+  { "viewKey": "<64 hex>", "spendKey": "<96 hex>",
+    "account": 0, "index": 0, "hrp": "tnv",
+    "expectedAddress": "tnv1..." },
+  ...
+]
+```
+
+Until the fixture is generated, the `MatchesFixture` tests should be marked
+`[Fact(Skip = "fixture not yet generated")]` and the round-trip / prefix tests
+used as the primary coverage.
+
+---
+
+### Test Execution Matrix
+
+| Test Suite | Needs `libblsct.so` | Needs Daemon | Run in CI |
+|------------|---------------------|--------------|-----------|
+| NBitcoin NavioTests | No | No | Yes |
+| NBXplorer NavioTests (unit) | No | No | Yes |
+| NBXplorer BlsctDerivationTests | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
+| NBXplorer NavioDaemonTests | Yes | Yes | No (manual) |
+| BTCPayServer NavioPluginTests | No | No | Yes |
+| libblsct-bindings BlsctTests (existing) | No | No | Yes |
+| libblsct-bindings BlsctIntegrationTests | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
+
+CI runs all "No" rows unconditionally. "Conditional" rows run only when
+`LIBBLSCT_SO_PATH` env var points to a valid `libblsct.so`. "Manual" rows
+are for pre-PR validation against a live testnet node.
+
+---
+
 ## PR Submission Order
 
 > **Draft PRs open in mxaddict forks.** See [PRs.md](PRs.md) for links. Upstream
