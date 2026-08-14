@@ -67,22 +67,28 @@ dotnet test NBitcoin.Tests/NBitcoin.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test                                                       | Asserts                         |
-| ---------------------------------------------------------- | ------------------------------- |
-| `NavioGenesisHashIsCorrect` (skipped)                      | `7a04d0211de9…e5c3e6`           |
-| `NavioNetwork_Testnet_HasCorrectPorts`                     | P2P=33670, RPC=33677            |
-| `NavioNetwork_Testnet_HasCorrectBlsctBech32HRP`            | `"tnv"` encoder exists          |
-| `NavioNetwork_Testnet_HasCorrectBase58Prefixes`            | `0x6f`, `0xc4`                  |
-| `NavioNetwork_RegisteredInAltNetworkSets`                  | `AltNetworkSets.Navio` not null |
-| `ConfigureBLSCTOverrides_SetsRPCMethodOverridesDictionary` | dict not null                   |
-| `ConfigureBLSCTOverrides_RemapsAllEightMethods`            | all 8 entries correct           |
-| `ConfigureBLSCTOverrides_DoesNotRemapCreatewallet`         | no `createwallet` key           |
-| `ConfigureBLSCTOverrides_DoesNotRemapGetnewaddress`        | no `getnewaddress` key          |
-| `ConfigureBLSCTOverrides_ExactlyEightMappings`             | count == 8                      |
-| `CreateWalletOptions_BlsctProperty_DefaultsToNull`         | default null                    |
-| `CreateWalletOptions_BlsctTrue_IncludedInSerialization`    | JSON has `"blsct": true`        |
-| `CreateWalletOptions_BlsctNull_OmittedFromSerialization`   | no `"blsct"` key                |
-| `RPCOperations_BlsctEnums_HaveCorrectStringValues`         | 15 theory cases                 |
+| Test                                                     | Asserts                            |
+| -------------------------------------------------------- | ---------------------------------- |
+| `NavioTestnetNetworkExists`                              | `AltNetworkSets.Navio.Testnet` set |
+| `NavioGenesisHashIsCorrect`                              | testnet `7a04d0211de9…e5c3e6`      |
+| `NavioMainnetGenesisHashIsCorrect`                       | mainnet `0af3c23ae1ac…31d86b13`    |
+| `NavioNetworkPortsAreCorrect`                            | testnet P2P=33670, RPC=33677       |
+| `NavioMainnetPortsAreCorrect`                            | mainnet P2P=48470, RPC=48471       |
+| `NavioTestnetMagicMatchesChainparams`                    | `24 67 d2 c1`                      |
+| `NavioMainnetMagicMatchesChainparams`                    | `bd 5f c3 00`                      |
+| `NavioTestnet_Bech32_WitnessAddressHRP_IsTb`             | `"tb"` encoder exists              |
+| `NavioTestnet_Base58_P2PKH_PrefixIs0x6f`                 | `0x6f`                             |
+| `NavioTestnet_Base58_P2SH_PrefixIs0xc4`                  | `0xc4`                             |
+| `NavioIsInAltNetworkSets`                                | `AltNetworkSets.Navio` not null    |
+| `ConfigureBLSCTOverridesCreatesMethodMapping`            | dict not null                      |
+| `ConfigureBLSCTOverridesHasCorrectMappings`              | all 8 entries correct              |
+| `ConfigureBLSCTOverridesHasExactlyEightEntries`          | count == 8                         |
+| `ConfigureBLSCTOverridesDoesNotContainCreatewallet`      | no `createwallet` key              |
+| `ConfigureBLSCTOverridesDoesNotContainGetnewaddress`     | no `getnewaddress` key             |
+| `CreateWalletOptionsBlsctDefaultsToNull`                 | default null                       |
+| `CreateWalletOptions_BlsctTrue_IncludedInSerialization`  | JSON has `"blsct": true`           |
+| `CreateWalletOptions_BlsctNull_OmittedFromSerialization` | no `"blsct"` key                   |
+| `BlsctRPCOperationsEnumExists`                           | BLSCT enum values present          |
 
 ### 1b — NBXplorer Unit Tests
 

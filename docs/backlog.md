@@ -9,7 +9,7 @@ GitHub and nuget.org. Re-verify before acting on anything months from now.
 All four fork branches were rebased onto current upstream this session, and all
 unit suites are green afterwards. Figures are what the runners reported:
 
-- `NBitcoin.Tests` `~Navio`, net8.0 — Failed: 0, Passed: 37, Skipped: 1
+- `NBitcoin.Tests` `~Navio`, net8.0 — Failed: 0, Passed: 41, Skipped: 0
 - `NBXplorer.Tests` `~Navio|~Blsct`, net10.0 — Failed: 0, Passed: 24, Skipped: 4
 - `BTCPayServer.Tests` `~Navio`, net10.0 — Failed: 0, Passed: 6, Skipped: 2
 
@@ -61,54 +61,68 @@ branch carries a `chore: add local NuGet config` commit. Neither belongs
 upstream. Drop or fixup that commit when the BTCPayServer branch is prepared for
 review.
 
-## Navio network parameters — fixed, with one hole left
+## Navio network parameters — done, both networks
 
 navio-core **re-genesised its testnet** between our old submodule pointer
-(April) and current master. Found by diffing `src/kernel/chainparams.cpp`:
+(April) and current master, and mainnet has since launched. Everything we had
+was from the pre-re-genesis chain, so the P2P magic would have been rejected by
+every peer and the RPC port pointed at nothing:
 
-|                      | old pointer    | current master  |
-| -------------------- | -------------- | --------------- |
-| testnet nTime        | 1743259590     | 1777481682      |
-| testnet nNonce       | 2              | 0               |
-| testnet P2P port     | 33570          | 33670           |
-| testnet RPC port     | 33577          | 33677           |
-| testnet magic        | `b9 3c 0e df`  | `24 67 d2 c1`   |
-| testnet genesis hash | (not asserted) | `7a04d0211de9…` |
+|                   | what we had    | navio-core master |
+| ----------------- | -------------- | ----------------- |
+| testnet nTime     | 1743259590     | 1777481682        |
+| testnet nNonce    | 2              | 1 (after grind)   |
+| testnet P2P / RPC | 33570 / 33577  | 33670 / 33677     |
+| testnet magic     | `b9 3c 0e df`  | `24 67 d2 c1`     |
+| testnet genesis   | synthetic      | `7a04d0211de9…`   |
+| testnet datadir   | `testnet5`     | `testnet7`        |
+| mainnet P2P / RPC | 8333 / 48484   | 48470 / 48471     |
+| mainnet magic     | `acb1d2db`     | `bd 5f c3 00`     |
+| mainnet genesis   | a 2019 fiction | `0af3c23ae1ac…`   |
 
-Everything we had was from the pre-re-genesis chain, so the P2P magic would have
-been rejected by every peer and the RPC port pointed at nothing. Fixed this
-session in `Navio.cs`, `NavioTests.cs`, the `navio.yml` docker fragment,
-`E2E.md` and `BTCPAY.md`, and a `NavioTestnetMagicMatchesChainparams` test now
-guards the magic (confirmed it goes red on a flipped byte). The locally
-installed `navio-cli` v0.1.3 already defaults `-testnet` to 33677, which is
-independent confirmation the new params are what is deployed.
+All corrected in `Navio.cs`, `NavioTests.cs`, the `navio.yml` fragment, `E2E.md`
+and `BTCPAY.md`. The old mainnet RPC port 48484 was `blsctregtest`'s. Magic
+bytes for both networks are now asserted by tests (verified red on a flipped
+byte), and `NavioGenesisHashIsCorrect` /`NavioMainnetGenesisHashIsCorrect` are
+enabled and green — nothing in the NBitcoin Navio suite is skipped any more.
 
-**Still open — the genesis hash cannot be represented.** `Navio.cs` sets a
-_synthetic_ genesis: real header fields, but a minimal standard coinbase,
-because the real genesis carries a BLSCT transaction NBitcoin has no parser for.
-So `network.GenesisHash` is not the chain's genesis hash, and
-`NavioGenesisHashIsCorrect` stays skipped. This is not cosmetic:
-`DbConnectionHelper.CreateGenesis` in NBXplorer seeds the chain with
-`Network.NBitcoinNetwork.Consensus.HashGenesisBlock`, so NBXplorer's height-0
-block will not match the daemon's. Whether that breaks indexing is **unverified
-and only phase 3 can answer it**. The real fix is either a BLSCT-aware block
-parser in NBitcoin or a way to set a network's genesis hash without parsing a
-block; both are upstream design decisions worth raising before the NBitcoin PR.
+The previously documented "expected" genesis hash
+`57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b` appears
+**nowhere** in navio-core at either pointer. It was simply wrong.
 
-Note the previously documented "expected" genesis hash,
-`57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b`, appears
-**nowhere** in navio-core at either pointer. It was wrong, and every doc that
-quoted it has been corrected to `7a04d0211de9…`.
+### How the genesis hashes became representable
 
-### Mainnet parameters are still stale — deliberately left
+`Consensus.HashGenesisBlock` in NBitcoin parses the configured genesis bytes and
+returns `block.GetHash()` — which reads only the 80-byte header. So the genesis
+entries now carry the **real header**, testnet's post-grind nonce included, with
+a placeholder body. The hash is exact; `GetGenesis().Transactions` is fiction
+and must not be read. Both hashes were derived independently in Python from the
+chainparams fields and matched navio-core's own asserts before being written
+into `Navio.cs`.
 
-`Navio.cs` `CreateMainnet` carries magic `acb1d2db`, port 8333 and RPC
-port 48484. Current navio-core mainnet is magic `bd 5f c3 00`, port 48470, RPC
-48471 — 48484 is `blsctregtest`'s RPC port, not mainnet's. Mainnet genesis also
-moved to `0af3c23ae1ac…` with an nTime in the future, so the chain has not
-launched. Left alone because the integration targets testnet and touching
-mainnet would be scope creep, but it must be fixed before anyone points this at
-mainnet.
+This closes the NBXplorer concern from the previous session:
+`DbConnectionHelper.CreateGenesis` seeds height 0 from
+`Consensus.HashGenesisBlock`, which now matches the daemon.
+
+### Open: NBitcoin cannot parse any Navio transaction or block
+
+Found while reconstructing the genesis: navio-core's `COutPoint` serializes
+**only the output id — there is no output index**
+(`src/primitives/transaction.h`). This is not a BLSCT detail; it applies to
+every Navio transaction. `CBlock` also splices a PoS proof between the header
+and `vtx`, and `CTxOut` carries range proofs, token ids and predicates behind a
+flags byte.
+
+So anything downstream that deserializes a Navio transaction or block body with
+NBitcoin is wrong today. Not yet established **whether NBXplorer does that** for
+Navio on the indexing path — the derivation and RPC paths were built to avoid
+it, but block indexing was never traced. Trace it before phase 3, because a
+failure there looks like "sync is stuck" rather than a parser bug.
+
+If it does need parsing, the fix is a `NavioConsensusFactory` overriding
+`CreateTxIn` with a `TxIn` whose `ReadWrite` omits the index — `TxIn.ReadWrite`
+and `ConsensusFactory.CreateTxIn` are both virtual, so the hook exists. The
+BLSCT output fields are a much larger job.
 
 ### `blsctregtest` now exists in navio-core
 
@@ -149,12 +163,9 @@ either way will be a testnet payment landing (or not) in phase 5.
 
 ## Skipped tests — coverage gaps, stated plainly
 
-- **`NavioGenesisHashIsCorrect` (skipped)** — see the genesis section above. Now
-  at least asserts the real hash, so enabling it is a one-line change once
-  NBitcoin can represent it.
 - **`NBitcoin.Tests` net472 target does not run at all.** The run aborts with
   `Could not find 'mono' host`; only net8.0 executes. Decide: install mono, or
-  narrow the test project's `TargetFrameworks`. "37 passed" describes one of two
+  narrow the test project's `TargetFrameworks`. "41 passed" describes one of two
   configured targets.
 - **`NavioDaemonTests` ×4 (skipped)** —
   `EnsureWalletCreated_ForNavio_CreatesBlsctWallet`,
@@ -183,6 +194,14 @@ description or it reads as a defect in our code.
 - **Fixing up the "add then remove" of the `NavioBlsct` reference in NBitcoin's
   history.** Left as a separate honest commit rather than rewriting the commit
   that introduced it; upstream will squash anyway.
+- **Making the docker fragment pick ports per network.** Not needed: BTCPay's
+  fragments pass `rpcport`/`port` explicitly and point NBXplorer at the same
+  numbers, so one set works on mainnet and testnet alike. That is also why the
+  33577 → 33677 renumbering was cosmetic, not a fix — both sides always agreed.
+  An earlier commit message here claimed otherwise and was corrected.
+- **Writing a `NavioConsensusFactory` now.** The hook exists and the genesis no
+  longer needs it. Worth building only if NBXplorer turns out to parse Navio
+  block bodies — see the open item above.
 
 ## Not reviewed
 

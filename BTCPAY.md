@@ -41,37 +41,52 @@ need Navio-specific overrides to route wallet calls through the BLSCT RPC
 variants (e.g. `getblsctbalance` instead of `getbalance`, `sendtoblsctaddress`
 instead of `sendtoaddress`).
 
-## Navio Testnet Chain Parameters
+## Navio Chain Parameters
 
-Source: `src/kernel/chainparams.cpp`, class `CTestNetParams`, and
-`src/chainparamsbase.cpp`, `CreateBaseChainParams`. The line numbers in the
-table below rot on every navio-core rebase — trust the class names.
+Source: `src/kernel/chainparams.cpp`, classes `CMainParams` and
+`CTestNetParams`, plus `CreateBaseChainParams` in `src/chainparamsbase.cpp` for
+the RPC ports and datadir names. Named that way rather than by line number
+because navio-core moves under us — it re-genesised testnet once already.
 
-| Parameter                | Value                                                                | Source Line             |
-| ------------------------ | -------------------------------------------------------------------- | ----------------------- |
-| CryptoCode               | `NAV`                                                                | —                       |
-| Chain Name               | Navio                                                                | —                       |
-| P2P Port                 | 33670                                                                | chainparams.cpp:314     |
-| RPC Port                 | 33677                                                                | chainparamsbase.cpp:48  |
-| Message Start            | `0x24, 0x67, 0xd2, 0xc1`                                             | chainparams.cpp:310-313 |
-| Genesis Block Hash       | `0x7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6` | chainparams.cpp:321     |
-| Genesis Merkle Root      | `0x86054bea52edd87ef7366fd103a66f263557736fd006f1a1942dc50ca40c507f` | chainparams.cpp:322     |
-| Subsidy Halving Interval | 210000                                                               | chainparams.cpp:269     |
-| PoW Target Spacing       | 600s (10 min)                                                        | chainparams.cpp:285     |
-| PoS Target Spacing       | 60s (1 min)                                                          | chainparams.cpp:287     |
-| BIP34 Height             | 21111                                                                | chainparams.cpp:272     |
-| BIP65 Height             | 581885                                                               | chainparams.cpp:274     |
-| BIP66 Height             | 330776                                                               | chainparams.cpp:275     |
-| CSV Height               | 770112                                                               | chainparams.cpp:276     |
-| Segwit Height            | 834624                                                               | chainparams.cpp:277     |
-| BLSCT Enabled            | `true`                                                               | chainparams.cpp:278     |
-| Bech32 HRP               | `tb`                                                                 | chainparams.cpp:337     |
-| BLSCT bech32_mod_hrp     | `tnv`                                                                | chainparams.cpp:338     |
-| Base58 P2PKH             | `0x6f` (111)                                                         | chainparams.cpp:330     |
-| Base58 P2SH              | `0xc4` (196)                                                         | chainparams.cpp:332     |
-| Base58 Secret Key        | `0xef` (239)                                                         | chainparams.cpp:333     |
-| EXT_PUBLIC_KEY           | `0x043587CF`                                                         | chainparams.cpp:334     |
-| EXT_SECRET_KEY           | `0x04358394`                                                         | chainparams.cpp:335     |
+Both networks run BLSCT (`consensus.fBLSCT = true`), and BIP34/65/66, CSV and
+segwit are all active from genesis, so there are no activation heights worth
+tabulating.
+
+| Parameter            | Mainnet                                                              | Testnet                                                              |
+| -------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| CryptoCode           | `NAV`                                                                | `NAV`                                                                |
+| Datadir              | (root)                                                               | `testnet7`                                                           |
+| P2P Port             | 48470                                                                | 33670                                                                |
+| RPC Port             | 48471                                                                | 33677                                                                |
+| Message Start        | `0xbd, 0x5f, 0xc3, 0x00`                                             | `0x24, 0x67, 0xd2, 0xc1`                                             |
+| Genesis Block Hash   | `0x0af3c23ae1ac4910693b7187ac61641d16d1cf49cba7acf8649d48e831d86b13` | `0x7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6` |
+| Genesis Merkle Root  | `0x96f8dfcc3c433012bc9d4b42e85fe543936609f87fce2cc9d5484383ee2f9aaf` | `0x86054bea52edd87ef7366fd103a66f263557736fd006f1a1942dc50ca40c507f` |
+| Genesis nTime        | 1782910800                                                           | 1777481682                                                           |
+| Genesis nNonce       | 0                                                                    | 1 (after the grind)                                                  |
+| PoW Target Spacing   | 600s (10 min)                                                        | 600s (10 min)                                                        |
+| PoS Target Spacing   | 120s (2 min)                                                         | 120s (2 min)                                                         |
+| Last PoW Height      | 110                                                                  | 1000                                                                 |
+| Bech32 HRP           | `bc`                                                                 | `tb`                                                                 |
+| BLSCT bech32_mod_hrp | `nav`                                                                | `tnv`                                                                |
+| Base58 P2PKH         | `0x00` (0)                                                           | `0x6f` (111)                                                         |
+| Base58 P2SH          | `0x05` (5)                                                           | `0xc4` (196)                                                         |
+| Base58 Secret Key    | `0x80` (128)                                                         | `0xef` (239)                                                         |
+| EXT_PUBLIC_KEY       | `0x0488B21E`                                                         | `0x043587CF`                                                         |
+| EXT_SECRET_KEY       | `0x0488ADE4`                                                         | `0x04358394`                                                         |
+
+### Navio transactions do not round-trip through NBitcoin
+
+`COutPoint` in navio-core serializes **only** the output id — there is no output
+index (`src/primitives/transaction.h`). That is not a BLSCT detail; it applies
+to every Navio transaction. NBitcoin's parser reads the Bitcoin layout, so it
+cannot deserialize a Navio transaction or a Navio block body, and `CBlock` also
+splices in a PoS proof between header and `vtx`.
+
+The genesis entries in `Navio.cs` therefore carry the **real 80-byte header**
+with a placeholder body. `Consensus.HashGenesisBlock` is derived from the header
+alone, so it is exact and asserted by `NavioGenesisHashIsCorrect` and
+`NavioMainnetGenesisHashIsCorrect`. Anything that tries to read
+`GetGenesis().Transactions` is reading fiction.
 
 > Signet and Regtest both have `fBLSCT = false` and use standard Bitcoin genesis
 > blocks — they do not represent Navio's consensus and are excluded from this
@@ -572,8 +587,8 @@ on startup so NBXplorer can load it via P/Invoke.
 | CLI binary     | `./src/navio-cli`             |
 | Config file    | `~/.navio/navio.conf`         |
 | Data directory | `~/.navio/`                   |
-| Testnet data   | `~/.navio/testnet5/`          |
-| Log file       | `~/.navio/testnet5/debug.log` |
+| Testnet data   | `~/.navio/testnet7/`          |
+| Log file       | `~/.navio/testnet7/debug.log` |
 
 ## Building Navio Core
 
