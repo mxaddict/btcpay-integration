@@ -43,16 +43,18 @@ instead of `sendtoaddress`).
 
 ## Navio Testnet Chain Parameters
 
-Source: `src/kernel/chainparams.cpp` (CTestNetParams, line 261)
+Source: `src/kernel/chainparams.cpp`, class `CTestNetParams`, and
+`src/chainparamsbase.cpp`, `CreateBaseChainParams`. The line numbers in the
+table below rot on every navio-core rebase — trust the class names.
 
 | Parameter                | Value                                                                | Source Line             |
 | ------------------------ | -------------------------------------------------------------------- | ----------------------- |
 | CryptoCode               | `NAV`                                                                | —                       |
 | Chain Name               | Navio                                                                | —                       |
-| P2P Port                 | 33570                                                                | chainparams.cpp:314     |
-| RPC Port                 | 33577                                                                | chainparamsbase.cpp:48  |
-| Message Start            | `0xb9, 0x3c, 0x0e, 0xdf`                                             | chainparams.cpp:310-313 |
-| Genesis Block Hash       | `0x57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b` | chainparams.cpp:321     |
+| P2P Port                 | 33670                                                                | chainparams.cpp:314     |
+| RPC Port                 | 33677                                                                | chainparamsbase.cpp:48  |
+| Message Start            | `0x24, 0x67, 0xd2, 0xc1`                                             | chainparams.cpp:310-313 |
+| Genesis Block Hash       | `0x7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6` | chainparams.cpp:321     |
 | Genesis Merkle Root      | `0x86054bea52edd87ef7366fd103a66f263557736fd006f1a1942dc50ca40c507f` | chainparams.cpp:322     |
 | Subsidy Halving Interval | 210000                                                               | chainparams.cpp:269     |
 | PoW Target Spacing       | 600s (10 min)                                                        | chainparams.cpp:285     |
@@ -539,7 +541,7 @@ Hot wallet spending uses remapped `sendtoaddress` → `sendtoblsctaddress`.
 #### 4a. `docker-compose-generator/docker-fragments/navio.yml`
 
 Done. Docker fragment with `naviod` container (`navio/naviod:latest`), RPC port
-33577, P2P port 33570, NBXplorer env vars (`NBXPLORER_CHAINS=nav`,
+33677, P2P port 33670, NBXplorer env vars (`NBXPLORER_CHAINS=nav`,
 `NBXPLORER_NAVRPCURL`), BTCPayServer env vars (`BTCPAY_CHAINS=nav`), volumes.
 
 #### 4b. `docker-compose-generator/crypto-definitions.json`
@@ -723,12 +725,12 @@ requiring `libblsct.so`, then tests requiring a live daemon.
   so the correct overload is called.
 - `Navio.ConfigureBLSCTOverrides(client)` is a `static` method on
   `NBitcoin.Altcoins.Navio`. It sets `client.RPCMethodOverrides`
-  (`Dictionary<string, string>`) in-place. A dummy `RPCClient` (fake URI,
-  no live connection) is sufficient to test the dictionary contents.
+  (`Dictionary<string, string>`) in-place. A dummy `RPCClient` (fake URI, no
+  live connection) is sufficient to test the dictionary contents.
 - `UIStoresController.ParseDerivationStrategy` is `internal static` in
   `BTCPayServer`. It is accessible from `BTCPayServer.Tests` because
-  `[assembly: InternalsVisibleTo("BTCPayServer.Tests")]` is already declared
-  in `BTCPayServer/Program.cs`.
+  `[assembly: InternalsVisibleTo("BTCPayServer.Tests")]` is already declared in
+  `BTCPayServer/Program.cs`.
 - Test vectors cannot be static hex strings derived from `keyman_tests.cpp`
   because that file does not exist. The C++ external API tests
   (`navio-core/src/test/blsct/external_api/external_api_tests.cpp`) use
@@ -763,14 +765,14 @@ using Xunit;
 NavioNetwork_Testnet_HasCorrectGenesisHash()
 // var network = AltNetworkSets.Navio.Testnet;  // NBitcoin.Altcoins.AltNetworkSets
 // Assert.Equal(
-//   uint256.Parse("57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b"),
+//   uint256.Parse("7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6"),
 //   network.GetGenesis().GetHash());
 
 [Fact]
 NavioNetwork_Testnet_HasCorrectPorts()
 // var network = AltNetworkSets.Navio.Testnet;
-// Assert.Equal(33570, network.DefaultPort);
-// Assert.Equal(33577, network.RPCPort);
+// Assert.Equal(33670, network.DefaultPort);
+// Assert.Equal(33677, network.RPCPort);
 
 [Fact]
 NavioNetwork_Testnet_HasCorrectBlsctBech32HRP()
@@ -796,7 +798,7 @@ NavioNetwork_RegisteredInAltNetworkSets()
 // Helper: create a dummy RPCClient (no live connection needed)
 // var client = new RPCClient(
 //     new RPCCredentialString { UserPassword = new NetworkCredential("u","p") },
-//     new Uri("http://127.0.0.1:33577/"),
+//     new Uri("http://127.0.0.1:33677/"),
 //     AltNetworkSets.Navio.Testnet);
 
 [Fact]
@@ -885,7 +887,8 @@ RPCOperations_BlsctEnums_HaveCorrectStringValues(RPCOperations op, string expect
 ### NBXplorer — Unit Tests
 
 **File:** `NBXplorer/NBXplorer.Tests/NavioTests.cs`  
-**Framework:** xUnit (project: `NBXplorer/NBXplorer.Tests/NBXplorer.Tests.csproj`)
+**Framework:** xUnit (project:
+`NBXplorer/NBXplorer.Tests/NBXplorer.Tests.csproj`)
 
 ```csharp
 // Required usings:
@@ -950,8 +953,8 @@ BlsctDerivationStrategy_ToString_Parse_RoundTrip()
 #### BlsctDerivationStrategyFactory
 
 > **Important:** `BlsctDerivationStrategyFactory.Parse()` uses `new`, not
-> `override`. Declare factory as `BlsctDerivationStrategyFactory` (not the
-> base `DerivationStrategyFactory`) so the correct overload resolves.
+> `override`. Declare factory as `BlsctDerivationStrategyFactory` (not the base
+> `DerivationStrategyFactory`) so the correct overload resolves.
 
 ```csharp
 [Fact]
@@ -1011,11 +1014,13 @@ NavioNBXplorerNetwork_Testnet_CoinTypeIs1()
 
 **File:** `NBXplorer/NBXplorer.Tests/BlsctDerivationTests.cs`  
 **Framework:** xUnit  
-**Skip guard:** Check `File.Exists(Environment.GetEnvironmentVariable("LIBBLSCT_SO_PATH") ?? "")`
-at the start of each test; skip via `Skip.If(...)` (using the xunit.v3.skip
+**Skip guard:** Check
+`File.Exists(Environment.GetEnvironmentVariable("LIBBLSCT_SO_PATH") ?? "")` at
+the start of each test; skip via `Skip.If(...)` (using the xunit.v3.skip
 package) or `[Fact(Skip = "requires libblsct.so")]` when the env var is absent.
 
 The method under test is the static method on `BlsctDerivationStrategy`:
+
 ```csharp
 // BlsctDerivationStrategy.DeriveBlsctAddress(
 //     byte[] viewKey, byte[] spendKey, long account, ulong index, string hrp)
@@ -1109,7 +1114,8 @@ NavioChain_IndexesBlocks()
 ### BTCPayServer — Unit Tests
 
 **File:** `btcpayserver/BTCPayServer.Tests/NavioPluginTests.cs`  
-**Framework:** xUnit (project: `btcpayserver/BTCPayServer.Tests/BTCPayServer.Tests.csproj`)
+**Framework:** xUnit (project:
+`btcpayserver/BTCPayServer.Tests/BTCPayServer.Tests.csproj`)
 
 ```csharp
 // Required usings:
@@ -1142,8 +1148,8 @@ DerivationSchemeViewModel_IsBLSCT_DefaultsFalse()
 #### UIStoresController — Audit Key Parsing
 
 > `ParseDerivationStrategy` is `internal static` in `UIStoresController`.
-> Accessible from `BTCPayServer.Tests` via `InternalsVisibleTo` already set
-> in `BTCPayServer/Program.cs`. Call as:
+> Accessible from `BTCPayServer.Tests` via `InternalsVisibleTo` already set in
+> `BTCPayServer/Program.cs`. Call as:
 > `UIStoresController.ParseDerivationStrategy(input, navioNetwork)`
 
 ```csharp
@@ -1184,7 +1190,8 @@ ImportWallet_ForNavio_SetsIsBLSCT_True()
 
 **File:** `libblsct-bindings/ffi/csharp/tests/BlsctIntegrationTests.cs`  
 **Framework:** xUnit (project already exists alongside `BlsctTests.cs`)  
-**Skip guard:** Same `LIBBLSCT_SO_PATH` env var pattern as NBXplorer tests above.
+**Skip guard:** Same `LIBBLSCT_SO_PATH` env var pattern as NBXplorer tests
+above.
 
 ```csharp
 // Required usings: using NavioBlsct; using Xunit;
@@ -1236,6 +1243,7 @@ integer seeds but only computable by running the native library.
 **Approach — fixture generator script:**
 
 Write a small C# console app (or xUnit fixture class) that:
+
 1. Calls `BlsctDerivationStrategy.DeriveBlsctAddress` for the test inputs below
 2. Writes results to JSON
 
@@ -1253,6 +1261,7 @@ Run once after building `libblsct.so`, commit the JSON output.
 ```
 
 Store JSON at:
+
 - `NBXplorer/NBXplorer.Tests/TestData/blsct_vectors.json`
 - `libblsct-bindings/ffi/csharp/tests/TestData/blsct_vectors.json`
 
@@ -1273,19 +1282,19 @@ used as the primary coverage.
 
 ### Test Execution Matrix
 
-| Test Suite | Needs `libblsct.so` | Needs Daemon | Run in CI |
-|------------|---------------------|--------------|-----------|
-| NBitcoin NavioTests | No | No | Yes |
-| NBXplorer NavioTests (unit) | No | No | Yes |
-| NBXplorer BlsctDerivationTests | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
-| NBXplorer NavioDaemonTests | Yes | Yes | No (manual) |
-| BTCPayServer NavioPluginTests | No | No | Yes |
-| libblsct-bindings BlsctTests (existing) | No | No | Yes |
-| libblsct-bindings BlsctIntegrationTests | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
+| Test Suite                              | Needs `libblsct.so` | Needs Daemon | Run in CI                            |
+| --------------------------------------- | ------------------- | ------------ | ------------------------------------ |
+| NBitcoin NavioTests                     | No                  | No           | Yes                                  |
+| NBXplorer NavioTests (unit)             | No                  | No           | Yes                                  |
+| NBXplorer BlsctDerivationTests          | Yes                 | No           | Conditional (`LIBBLSCT_SO_PATH` set) |
+| NBXplorer NavioDaemonTests              | Yes                 | Yes          | No (manual)                          |
+| BTCPayServer NavioPluginTests           | No                  | No           | Yes                                  |
+| libblsct-bindings BlsctTests (existing) | No                  | No           | Yes                                  |
+| libblsct-bindings BlsctIntegrationTests | Yes                 | No           | Conditional (`LIBBLSCT_SO_PATH` set) |
 
 CI runs all "No" rows unconditionally. "Conditional" rows run only when
-`LIBBLSCT_SO_PATH` env var points to a valid `libblsct.so`. "Manual" rows
-are for pre-PR validation against a live testnet node.
+`LIBBLSCT_SO_PATH` env var points to a valid `libblsct.so`. "Manual" rows are
+for pre-PR validation against a live testnet node.
 
 ---
 

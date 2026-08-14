@@ -2,14 +2,14 @@
 
 Five phases, each with hard prereqs from the previous. Run in order. Fail fast.
 
-| Phase | Name | Deps |
-|-------|------|------|
-| 0 | Environment Setup | None |
-| 1 | Unit Tests | .NET SDK |
-| 2 | libblsct.so Integration | libblsct.so |
-| 3 | Live Daemon Tests | naviod running |
-| 4 | Docker Stack | Docker + libblsct.so volume |
-| 5 | Payment Flow | Phase 4 stack + funded testnet wallet |
+| Phase | Name                    | Deps                                  |
+| ----- | ----------------------- | ------------------------------------- |
+| 0     | Environment Setup       | None                                  |
+| 1     | Unit Tests              | .NET SDK                              |
+| 2     | libblsct.so Integration | libblsct.so                           |
+| 3     | Live Daemon Tests       | naviod running                        |
+| 4     | Docker Stack            | Docker + libblsct.so volume           |
+| 5     | Payment Flow            | Phase 4 stack + funded testnet wallet |
 
 ---
 
@@ -17,13 +17,13 @@ Five phases, each with hard prereqs from the previous. Run in order. Fail fast.
 
 ### Required Tools
 
-| Tool | Min Version | Notes |
-|------|-------------|-------|
-| .NET SDK | 8.0 | `dotnet --version` |
-| Docker | 24+ | `docker --version` |
-| Docker Compose | v2 | `docker compose version` |
-| `naviod` binary | latest testnet | for Phase 3 |
-| `libblsct.so` | from libblsct-bindings | for Phases 2, 4 |
+| Tool            | Min Version            | Notes                    |
+| --------------- | ---------------------- | ------------------------ |
+| .NET SDK        | 8.0                    | `dotnet --version`       |
+| Docker          | 24+                    | `docker --version`       |
+| Docker Compose  | v2                     | `docker compose version` |
+| `naviod` binary | latest testnet         | for Phase 3              |
+| `libblsct.so`   | from libblsct-bindings | for Phases 2, 4          |
 
 ### Build libblsct.so
 
@@ -37,12 +37,12 @@ export LIBBLSCT_SO_PATH="$(pwd)/build/src/libblsct.so"
 
 ### Environment Variables
 
-| Variable | Used In | Example |
-|----------|---------|---------|
-| `LIBBLSCT_SO_PATH` | Phases 2, 3, 4 | `/path/to/libblsct.so` |
-| `NBXPLORER_NAVTESTNET_RPCURL` | Phase 3 | `http://127.0.0.1:33577/` |
-| `NBXPLORER_NAVTESTNET_RPCUSER` | Phase 3 | `navuser` |
-| `NBXPLORER_NAVTESTNET_RPCPASSWORD` | Phase 3 | `navpass` |
+| Variable                           | Used In        | Example                   |
+| ---------------------------------- | -------------- | ------------------------- |
+| `LIBBLSCT_SO_PATH`                 | Phases 2, 3, 4 | `/path/to/libblsct.so`    |
+| `NBXPLORER_NAVTESTNET_RPCURL`      | Phase 3        | `http://127.0.0.1:33677/` |
+| `NBXPLORER_NAVTESTNET_RPCUSER`     | Phase 3        | `navuser`                 |
+| `NBXPLORER_NAVTESTNET_RPCPASSWORD` | Phase 3        | `navpass`                 |
 
 ### Verify Submodules Initialized
 
@@ -67,22 +67,22 @@ dotnet test NBitcoin.Tests/NBitcoin.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
-| `NavioNetwork_Testnet_HasCorrectGenesisHash` | `57b37639…9019e2b` |
-| `NavioNetwork_Testnet_HasCorrectPorts` | P2P=33570, RPC=33577 |
-| `NavioNetwork_Testnet_HasCorrectBlsctBech32HRP` | `"tnv"` encoder exists |
-| `NavioNetwork_Testnet_HasCorrectBase58Prefixes` | `0x6f`, `0xc4` |
-| `NavioNetwork_RegisteredInAltNetworkSets` | `AltNetworkSets.Navio` not null |
-| `ConfigureBLSCTOverrides_SetsRPCMethodOverridesDictionary` | dict not null |
-| `ConfigureBLSCTOverrides_RemapsAllEightMethods` | all 8 entries correct |
-| `ConfigureBLSCTOverrides_DoesNotRemapCreatewallet` | no `createwallet` key |
-| `ConfigureBLSCTOverrides_DoesNotRemapGetnewaddress` | no `getnewaddress` key |
-| `ConfigureBLSCTOverrides_ExactlyEightMappings` | count == 8 |
-| `CreateWalletOptions_BlsctProperty_DefaultsToNull` | default null |
-| `CreateWalletOptions_BlsctTrue_IncludedInSerialization` | JSON has `"blsct": true` |
-| `CreateWalletOptions_BlsctNull_OmittedFromSerialization` | no `"blsct"` key |
-| `RPCOperations_BlsctEnums_HaveCorrectStringValues` | 15 theory cases |
+| Test                                                       | Asserts                         |
+| ---------------------------------------------------------- | ------------------------------- |
+| `NavioGenesisHashIsCorrect` (skipped)                      | `7a04d0211de9…e5c3e6`           |
+| `NavioNetwork_Testnet_HasCorrectPorts`                     | P2P=33670, RPC=33677            |
+| `NavioNetwork_Testnet_HasCorrectBlsctBech32HRP`            | `"tnv"` encoder exists          |
+| `NavioNetwork_Testnet_HasCorrectBase58Prefixes`            | `0x6f`, `0xc4`                  |
+| `NavioNetwork_RegisteredInAltNetworkSets`                  | `AltNetworkSets.Navio` not null |
+| `ConfigureBLSCTOverrides_SetsRPCMethodOverridesDictionary` | dict not null                   |
+| `ConfigureBLSCTOverrides_RemapsAllEightMethods`            | all 8 entries correct           |
+| `ConfigureBLSCTOverrides_DoesNotRemapCreatewallet`         | no `createwallet` key           |
+| `ConfigureBLSCTOverrides_DoesNotRemapGetnewaddress`        | no `getnewaddress` key          |
+| `ConfigureBLSCTOverrides_ExactlyEightMappings`             | count == 8                      |
+| `CreateWalletOptions_BlsctProperty_DefaultsToNull`         | default null                    |
+| `CreateWalletOptions_BlsctTrue_IncludedInSerialization`    | JSON has `"blsct": true`        |
+| `CreateWalletOptions_BlsctNull_OmittedFromSerialization`   | no `"blsct"` key                |
+| `RPCOperations_BlsctEnums_HaveCorrectStringValues`         | 15 theory cases                 |
 
 ### 1b — NBXplorer Unit Tests
 
@@ -95,24 +95,24 @@ dotnet test NBXplorer.Tests/NBXplorer.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
-| `BlsctDerivationStrategy_Parse_ValidString_ReturnsStrategy` | keys match input |
-| `BlsctDerivationStrategy_Parse_MissingPrefix_ReturnsNull` | null (no "blsct:") |
-| `BlsctDerivationStrategy_Parse_WrongViewKeyLength_ReturnsNull` | null (62 chars) |
-| `BlsctDerivationStrategy_Parse_WrongSpendKeyLength_ReturnsNull` | null (94 chars) |
-| `BlsctDerivationStrategy_Parse_NonHexViewKey_ReturnsNull` | null ('Z' chars) |
-| `BlsctDerivationStrategy_Parse_NullInput_ReturnsNull` | null |
-| `BlsctDerivationStrategy_ToString_RoundTrips` | exact string preserved |
-| `BlsctDerivationStrategy_ToString_Parse_RoundTrip` | keys survive round-trip |
-| `BlsctDerivationStrategyFactory_Parse_BlsctString_ReturnsBlsctStrategy` | correct type |
-| `BlsctDerivationStrategyFactory_Parse_BlsctString_KeysMatchInput` | keys correct |
-| `BlsctDerivationStrategyFactory_Parse_NonBlsctString_FallsBackToBase` | not BlsctStrategy |
-| `NavioNBXplorerNetwork_Testnet_HasCorrectCryptoCode` | `"NAV"` |
-| `NavioNBXplorerNetwork_Testnet_HasCorrectMinRPCVersion` | 220000 |
-| `NavioNBXplorerNetwork_Testnet_CreateStrategyFactory_ReturnsBlsctFactory` | correct type |
-| `NavioNBXplorerNetwork_Mainnet_CoinTypeIs0` | 0 |
-| `NavioNBXplorerNetwork_Testnet_CoinTypeIs1` | 1 |
+| Test                                                                      | Asserts                 |
+| ------------------------------------------------------------------------- | ----------------------- |
+| `BlsctDerivationStrategy_Parse_ValidString_ReturnsStrategy`               | keys match input        |
+| `BlsctDerivationStrategy_Parse_MissingPrefix_ReturnsNull`                 | null (no "blsct:")      |
+| `BlsctDerivationStrategy_Parse_WrongViewKeyLength_ReturnsNull`            | null (62 chars)         |
+| `BlsctDerivationStrategy_Parse_WrongSpendKeyLength_ReturnsNull`           | null (94 chars)         |
+| `BlsctDerivationStrategy_Parse_NonHexViewKey_ReturnsNull`                 | null ('Z' chars)        |
+| `BlsctDerivationStrategy_Parse_NullInput_ReturnsNull`                     | null                    |
+| `BlsctDerivationStrategy_ToString_RoundTrips`                             | exact string preserved  |
+| `BlsctDerivationStrategy_ToString_Parse_RoundTrip`                        | keys survive round-trip |
+| `BlsctDerivationStrategyFactory_Parse_BlsctString_ReturnsBlsctStrategy`   | correct type            |
+| `BlsctDerivationStrategyFactory_Parse_BlsctString_KeysMatchInput`         | keys correct            |
+| `BlsctDerivationStrategyFactory_Parse_NonBlsctString_FallsBackToBase`     | not BlsctStrategy       |
+| `NavioNBXplorerNetwork_Testnet_HasCorrectCryptoCode`                      | `"NAV"`                 |
+| `NavioNBXplorerNetwork_Testnet_HasCorrectMinRPCVersion`                   | 220000                  |
+| `NavioNBXplorerNetwork_Testnet_CreateStrategyFactory_ReturnsBlsctFactory` | correct type            |
+| `NavioNBXplorerNetwork_Mainnet_CoinTypeIs0`                               | 0                       |
+| `NavioNBXplorerNetwork_Testnet_CoinTypeIs1`                               | 1                       |
 
 ### 1c — BTCPayServer Unit Tests
 
@@ -125,21 +125,21 @@ dotnet test BTCPayServer.Tests/BTCPayServer.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
-| `NavioBTCPayNetwork_IsBLSCT_IsTrue` | `IsBLSCT == true` |
-| `BitcoinBTCPayNetwork_IsBLSCT_IsFalse` | `IsBLSCT == false` |
-| `DerivationSchemeViewModel_IsBLSCT_DefaultsFalse` | default false |
-| `ParseDerivationStrategy_RawAuditKey_160HexChars_ConvertsToBlsctFormat` | `blsct:VIEW:SPEND` |
-| `ParseDerivationStrategy_AlreadyBlsctFormat_PassesThrough` | unchanged |
-| `ParseDerivationStrategy_WrongLength_IsHandled` | no crash |
-| `SetupWallet_ForNavio_SetsIsBLSCT_True` | view model flag set |
-| `ImportWallet_ForNavio_SetsIsBLSCT_True` | view model flag set |
+| Test                                                                    | Asserts             |
+| ----------------------------------------------------------------------- | ------------------- |
+| `NavioBTCPayNetwork_IsBLSCT_IsTrue`                                     | `IsBLSCT == true`   |
+| `BitcoinBTCPayNetwork_IsBLSCT_IsFalse`                                  | `IsBLSCT == false`  |
+| `DerivationSchemeViewModel_IsBLSCT_DefaultsFalse`                       | default false       |
+| `ParseDerivationStrategy_RawAuditKey_160HexChars_ConvertsToBlsctFormat` | `blsct:VIEW:SPEND`  |
+| `ParseDerivationStrategy_AlreadyBlsctFormat_PassesThrough`              | unchanged           |
+| `ParseDerivationStrategy_WrongLength_IsHandled`                         | no crash            |
+| `SetupWallet_ForNavio_SetsIsBLSCT_True`                                 | view model flag set |
+| `ImportWallet_ForNavio_SetsIsBLSCT_True`                                | view model flag set |
 
 ### Phase 1 Pass Criteria
 
-All unit tests green. Zero failures, zero errors. Skips only for tests explicitly
-marked `[Fact(Skip = "...")]`.
+All unit tests green. Zero failures, zero errors. Skips only for tests
+explicitly marked `[Fact(Skip = "...")]`.
 
 ---
 
@@ -162,16 +162,19 @@ dotnet test tests/ \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
-| `GenSubAddrId_ReturnsNonZeroHandle` | handle != IntPtr.Zero |
-| `DeriveSubAddress_ValidKeys_ReturnsNonZeroHandle` | handle != IntPtr.Zero |
-| `EncodeAddress_Testnet_StartsWithTnv1` | prefix `tnv1` |
-| `EncodeAddress_Mainnet_StartsWithNav1` | prefix `nav1` |
-| `DecodeAddress_RoundTrips` | decoded bytes == original |
-| `FullPipeline_MatchesFixture` | skip until vectors generated (see 2c) |
+| Test                                              | Asserts                               |
+| ------------------------------------------------- | ------------------------------------- |
+| `GenSubAddrId_ReturnsNonZeroHandle`               | handle != IntPtr.Zero                 |
+| `DeriveSubAddress_ValidKeys_ReturnsNonZeroHandle` | handle != IntPtr.Zero                 |
+| `EncodeAddress_Testnet_StartsWithTnv1`            | prefix `tnv1`                         |
+| `EncodeAddress_Mainnet_StartsWithNav1`            | prefix `nav1`                         |
+| `DecodeAddress_RoundTrips`                        | decoded bytes == original             |
+| `FullPipeline_MatchesFixture`                     | skip until vectors generated (see 2c) |
 
 ### 2b — NBXplorer BLSCT Derivation Tests
+
+No `LIBBLSCT_SO_PATH` needed: `NBXplorer.Client` takes the `NavioBlsct` package,
+which ships the native library for linux-x64, win-x64 and osx-arm64.
 
 ```bash
 cd NBXplorer
@@ -182,55 +185,37 @@ dotnet test NBXplorer.Tests/NBXplorer.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
-| `DeriveBlsctAddress_IsDeterministic` | same inputs → same output |
-| `DeriveBlsctAddress_Testnet_StartsWithTnv1` | prefix `tnv1` |
-| `DeriveBlsctAddress_Mainnet_StartsWithNav1` | prefix `nav1` |
-| `DeriveBlsctAddress_DifferentAccount_ProducesDifferentAddress` | account 0 ≠ account 1 |
-| `DeriveBlsctAddress_DifferentIndex_ProducesDifferentAddress` | index 0 ≠ index 1 |
-| `DeriveBlsctAddress_ChangeAccount_NegativeOne_Differs` | receive ≠ change |
-| `DeriveBlsctAddress_MatchesFixture` | skip until vectors generated (see 2c) |
+| Test                                                           | Asserts                               |
+| -------------------------------------------------------------- | ------------------------------------- |
+| `DeriveBlsctAddress_IsDeterministic`                           | same inputs → same output             |
+| `DeriveBlsctAddress_Testnet_StartsWithTnv1`                    | prefix `tnv1`                         |
+| `DeriveBlsctAddress_Mainnet_StartsWithNav1`                    | prefix `nav1`                         |
+| `DeriveBlsctAddress_DifferentAccount_ProducesDifferentAddress` | account 0 ≠ account 1                 |
+| `DeriveBlsctAddress_DifferentIndex_ProducesDifferentAddress`   | index 0 ≠ index 1                     |
+| `DeriveBlsctAddress_ChangeAccount_NegativeOne_Differs`         | receive ≠ change                      |
+| `DeriveBlsctAddress_MatchesFixture`                            | skip until vectors generated (see 2c) |
 
-### 2c — Generate Test Vectors
+### 2c — Test Vectors
 
-Run once after `libblsct.so` is built. Generates `blsct_vectors.json`.
+Done, with a caveat. `NBXplorer.Tests/Data/blsct_vectors.json` is committed and
+`DeriveBlsctAddress_MatchesFixture` reads it. Six vectors from seed scalar=1,
+accounts 0/1/-1/-2, indices 0/1/2.
 
-```bash
-cd NBXplorer
-dotnet run --project NBXplorer.Tests/NavioVectorGenerator \
-  --so-path "$LIBBLSCT_SO_PATH" \
-  --output NBXplorer.Tests/TestData/blsct_vectors.json
+**What it does not prove:** the fixture was produced by
+`BlsctDerivationStrategy.DeriveBlsctAddress` — the same code path the test
+exercises. So it is a regression guard against our derivation changing, not a
+check that our derivation agrees with navio-core. A derivation that is wrong the
+same way twice passes. Cross-implementation vectors have to come from the C++
+side (`external_api_tests.cpp` seeds) and do not exist yet; see
+[docs/backlog.md](docs/backlog.md).
 
-# Copy to libblsct-bindings test data
-cp NBXplorer/NBXplorer.Tests/TestData/blsct_vectors.json \
-   libblsct-bindings/ffi/csharp/tests/TestData/blsct_vectors.json
-```
-
-Input parameters for vectors (derived from `external_api_tests.cpp` seeds):
-
-| viewKey | spendKey | account | index | hrp |
-|---------|----------|---------|-------|-----|
-| `gen_scalar(11)` (32 bytes) | `gen_scalar(12)` (48 bytes) | 0 | 0 | `tnv` |
-| same | same | 0 | 1 | `tnv` |
-| same | same | -1 | 0 | `tnv` |
-| same | same | 0 | 0 | `nav` |
-
-After generating, commit both JSON files:
-
-```bash
-git -C NBXplorer add NBXplorer.Tests/TestData/blsct_vectors.json
-git -C libblsct-bindings add ffi/csharp/tests/TestData/blsct_vectors.json
-```
-
-Then re-run Phase 2a and 2b — `MatchesFixture` tests must now pass (remove
-`[Fact(Skip = ...)]` marker first).
+There is no `NavioVectorGenerator` project — an earlier revision of this
+document described one that was never written.
 
 ### Phase 2 Pass Criteria
 
 - All non-fixture tests green
-- Fixture tests green after vector generation
-- Both `blsct_vectors.json` files committed
+- `DeriveBlsctAddress_MatchesFixture` green against the committed vectors
 
 ---
 
@@ -244,7 +229,7 @@ Prereq: `naviod` running on testnet with known RPC creds.
 naviod -testnet \
   -rpcuser=navuser \
   -rpcpassword=navpass \
-  -rpcport=33577 \
+  -rpcport=33677 \
   -rpcallowip=127.0.0.1 \
   -daemon
 
@@ -257,7 +242,7 @@ navio-cli -testnet getblockchaininfo | grep '"chain": "test"'
 ```bash
 # Correct genesis hash
 navio-cli -testnet getblockhash 0
-# Expected: 57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b
+# Expected: 7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6
 
 # Correct chain
 navio-cli -testnet getblockchaininfo | grep chain
@@ -267,7 +252,7 @@ navio-cli -testnet getblockchaininfo | grep chain
 ### 3c — Run NBXplorer Daemon Tests
 
 ```bash
-export NBXPLORER_NAVTESTNET_RPCURL="http://127.0.0.1:33577/"
+export NBXPLORER_NAVTESTNET_RPCURL="http://127.0.0.1:33677/"
 export NBXPLORER_NAVTESTNET_RPCUSER="navuser"
 export NBXPLORER_NAVTESTNET_RPCPASSWORD="navpass"
 
@@ -279,12 +264,12 @@ dotnet test NBXplorer.Tests/NBXplorer.Tests.csproj \
 
 **Expected passing tests:**
 
-| Test | Asserts |
-|------|---------|
+| Test                                              | Asserts                          |
+| ------------------------------------------------- | -------------------------------- |
 | `EnsureWalletCreated_ForNavio_CreatesBlsctWallet` | `getwalletinfo["blsct"] == true` |
-| `GetBalance_RoutesTo_Getblsctbalance` | no `RPCException` |
-| `Listunspent_RoutesTo_Listblsctunspent` | result is `JArray`, no exception |
-| `NavioChain_IndexesBlocks` | `ChainHeight > 0` within 30s |
+| `GetBalance_RoutesTo_Getblsctbalance`             | no `RPCException`                |
+| `Listunspent_RoutesTo_Listblsctunspent`           | result is `JArray`, no exception |
+| `NavioChain_IndexesBlocks`                        | `ChainHeight > 0` within 30s     |
 
 ### 3d — Mine BLSCT Blocks and Verify UTXOs
 
@@ -347,7 +332,7 @@ docker compose exec naviod navio-cli -testnet getblockchaininfo | grep blocks
 
 # Correct genesis
 docker compose exec naviod navio-cli -testnet getblockhash 0
-# Expected: 57b37639169f354fd61978f8e88db8d7da085c1c6ac4e625c5d018b0d9019e2b
+# Expected: 7a04d0211de9194390c69ea0ab0d67e3c18a00c5a0b4aae65a4b5cd919e5c3e6
 ```
 
 ### 4c — Verify navio-cli.sh Wrapper
@@ -388,7 +373,8 @@ open http://localhost:3000
 
 - `naviod` container up and syncing blocks
 - `navio-cli.sh` wrapper returns valid JSON
-- NBXplorer `/v1/cryptos/NAV/status` returns valid response with `chainHeight > 0`
+- NBXplorer `/v1/cryptos/NAV/status` returns valid response with
+  `chainHeight > 0`
 - BTCPayServer UI shows Navio as available currency
 
 ---
@@ -487,9 +473,10 @@ navio-cli -testnet getmempoolinfo
 
 ### Known Limitation: Transaction History
 
-`listblscttransactions` is a stub in navio-core — returns empty array. BTCPayServer
-transaction history tab for Navio will be empty even after confirmed payments.
-This is a navio-core limitation, not a BTCPayServer bug. Document in the PR.
+`listblscttransactions` is a stub in navio-core — returns empty array.
+BTCPayServer transaction history tab for Navio will be empty even after
+confirmed payments. This is a navio-core limitation, not a BTCPayServer bug.
+Document in the PR.
 
 ```
 src/blsct/wallet/rpc.cpp:1102-1112  ← commented-out implementation
@@ -508,18 +495,19 @@ src/blsct/wallet/rpc.cpp:1102-1112  ← commented-out implementation
 
 ## Test Execution Matrix
 
-| Test Suite | Needs `libblsct.so` | Needs Daemon | Run in CI |
-|------------|---------------------|--------------|-----------|
-| NBitcoin `NavioTests` | No | No | Yes |
-| NBXplorer `NavioTests` (unit) | No | No | Yes |
-| NBXplorer `BlsctDerivationTests` | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
-| NBXplorer `NavioDaemonTests` | Yes | Yes | No (manual) |
-| BTCPayServer `NavioPluginTests` | No | No | Yes |
-| libblsct-bindings `BlsctTests` (existing) | No | No | Yes |
-| libblsct-bindings `BlsctIntegrationTests` | Yes | No | Conditional (`LIBBLSCT_SO_PATH` set) |
+| Test Suite                                | Needs `libblsct.so` | Needs Daemon | Run in CI                            |
+| ----------------------------------------- | ------------------- | ------------ | ------------------------------------ |
+| NBitcoin `NavioTests`                     | No                  | No           | Yes                                  |
+| NBXplorer `NavioTests` (unit)             | No                  | No           | Yes                                  |
+| NBXplorer `BlsctDerivationTests`          | Yes                 | No           | Conditional (`LIBBLSCT_SO_PATH` set) |
+| NBXplorer `NavioDaemonTests`              | Yes                 | Yes          | No (manual)                          |
+| BTCPayServer `NavioPluginTests`           | No                  | No           | Yes                                  |
+| libblsct-bindings `BlsctTests` (existing) | No                  | No           | Yes                                  |
+| libblsct-bindings `BlsctIntegrationTests` | Yes                 | No           | Conditional (`LIBBLSCT_SO_PATH` set) |
 
 CI runs all "No" rows unconditionally. "Conditional" rows run only when
-`LIBBLSCT_SO_PATH` is set. "Manual" rows are pre-PR validation against live testnet.
+`LIBBLSCT_SO_PATH` is set. "Manual" rows are pre-PR validation against live
+testnet.
 
 ---
 
@@ -535,5 +523,5 @@ All phases must be green before opening upstream PRs.
 - [ ] Known limitation documented in each PR: `listblscttransactions` stub
 
 **Upstream PR order:** libblsct-bindings → NBitcoin → NBXplorer → BTCPayServer.
-btcpayserver-docker can go in parallel with NBitcoin–BTCPayServer.
-See [PRs.md](PRs.md) for draft PR links.
+btcpayserver-docker can go in parallel with NBitcoin–BTCPayServer. See
+[PRs.md](PRs.md) for draft PR links.
